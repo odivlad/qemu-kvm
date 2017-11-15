@@ -1,9 +1,13 @@
+#include "qemu/osdep.h"
 #include "hw/hw.h"
 #include "hw/usb.h"
 #include "hw/qdev.h"
+#include "qapi/error.h"
+#include "qemu/error-report.h"
 #include "sysemu/sysemu.h"
 #include "monitor/monitor.h"
 #include "trace.h"
+#include "qemu/cutils.h"
 
 static void usb_bus_dev_print(Monitor *mon, DeviceState *qdev, int indent);
 
@@ -275,6 +279,13 @@ static void usb_qdev_realize(DeviceState *qdev, Error **errp)
 static void usb_qdev_unrealize(DeviceState *qdev, Error **errp)
 {
     USBDevice *dev = USB_DEVICE(qdev);
+    USBDescString *s, *next;
+
+    QLIST_FOREACH_SAFE(s, &dev->strings, next, next) {
+        QLIST_REMOVE(s, next);
+        g_free(s->str);
+        g_free(s);
+    }
 
     if (dev->attached) {
         usb_device_detach(dev);
@@ -328,9 +339,9 @@ static USBDevice *usb_try_create_simple(USBBus *bus, const char *name,
     }
     object_property_set_bool(OBJECT(dev), true, "realized", &err);
     if (err) {
-        error_setg(errp, "Failed to initialize USB device '%s': %s",
-                   name, error_get_pretty(err));
-        error_free(err);
+        error_propagate(errp, err);
+        error_prepend(errp, "Failed to initialize USB device '%s': ",
+                      name);
         object_unparent(OBJECT(dev));
         return NULL;
     }
@@ -654,9 +665,12 @@ void hmp_info_usb(Monitor *mon, const QDict *qdict)
             dev = port->dev;
             if (!dev)
                 continue;
-            monitor_printf(mon, "  Device %d.%d, Port %s, Speed %s Mb/s, Product %s\n",
-                           bus->busnr, dev->addr, port->path, usb_speed(dev->speed),
-                           dev->product_desc);
+            monitor_printf(mon, "  Device %d.%d, Port %s, Speed %s Mb/s, "
+                           "Product %s%s%s\n",
+                           bus->busnr, dev->addr, port->path,
+                           usb_speed(dev->speed), dev->product_desc,
+                           dev->qdev.id ? ", ID: " : "",
+                           dev->qdev.id ?: "");
         }
     }
 }
@@ -721,9 +735,8 @@ USBDevice *usbdevice_create(const char *cmdline)
     }
     object_property_set_bool(OBJECT(dev), true, "realized", &err);
     if (err) {
-        error_report("Failed to initialize USB device '%s': %s",
-                     f->name, error_get_pretty(err));
-        error_free(err);
+        error_reportf_err(err, "Failed to initialize USB device '%s': ",
+                          f->name);
         object_unparent(OBJECT(dev));
         return NULL;
     }

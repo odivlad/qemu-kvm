@@ -14,28 +14,20 @@
  * See the COPYING file in the top-level directory.
  *
  */
+#include "qemu/osdep.h"
 #include "libqtest.h"
 
 #include <glib.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <sys/un.h>
-#include <inttypes.h>
-#include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
 
-#include "qemu/compiler.h"
-#include "qemu/osdep.h"
 #include "qapi/qmp/json-parser.h"
 #include "qapi/qmp/json-streamer.h"
 #include "qapi/qmp/qjson.h"
 
 #define MAX_IRQ 256
-#define SOCKET_TIMEOUT 5
+#define SOCKET_TIMEOUT 50
 
 QTestState *global_qtest;
 
@@ -48,6 +40,7 @@ struct QTestState
     pid_t qemu_pid;  /* our child QEMU process */
 };
 
+static GHookList abrt_hooks;
 static GList *qtest_instances;
 static struct sigaction sigact_old;
 
@@ -109,12 +102,14 @@ static void kill_qemu(QTestState *s)
     }
 }
 
+static void kill_qemu_hook_func(void *s)
+{
+    kill_qemu(s);
+}
+
 static void sigabrt_handler(int signo)
 {
-    GList *elem;
-    for (elem = qtest_instances; elem; elem = elem->next) {
-        kill_qemu(elem->data);
-    }
+    g_hook_list_invoke(&abrt_hooks, FALSE);
 }
 
 static void setup_sigabrt_handler(void)
@@ -133,6 +128,23 @@ static void setup_sigabrt_handler(void)
 static void cleanup_sigabrt_handler(void)
 {
     sigaction(SIGABRT, &sigact_old, NULL);
+}
+
+void qtest_add_abrt_handler(GHookFunc fn, const void *data)
+{
+    GHook *hook;
+
+    /* Only install SIGABRT handler once */
+    if (!abrt_hooks.is_setup) {
+        g_hook_list_init(&abrt_hooks, sizeof(GHook));
+        setup_sigabrt_handler();
+    }
+
+    hook = g_hook_alloc(&abrt_hooks);
+    hook->func = fn;
+    hook->data = (void *)data;
+
+    g_hook_prepend(&abrt_hooks, hook);
 }
 
 QTestState *qtest_init(const char *extra_args)
@@ -155,12 +167,7 @@ QTestState *qtest_init(const char *extra_args)
     sock = init_socket(socket_path);
     qmpsock = init_socket(qmp_socket_path);
 
-    /* Only install SIGABRT handler once */
-    if (!qtest_instances) {
-        setup_sigabrt_handler();
-    }
-
-    qtest_instances = g_list_prepend(qtest_instances, s);
+    qtest_add_abrt_handler(kill_qemu_hook_func, s);
 
     s->qemu_pid = fork();
     if (s->qemu_pid == 0) {
@@ -208,12 +215,13 @@ QTestState *qtest_init(const char *extra_args)
 
 void qtest_quit(QTestState *s)
 {
+    qtest_instances = g_list_remove(qtest_instances, s);
+    g_hook_destroy_link(&abrt_hooks, g_hook_find_data(&abrt_hooks, TRUE, s));
+
     /* Uninstall SIGABRT handler on last instance */
-    if (qtest_instances && !qtest_instances->next) {
+    if (!qtest_instances) {
         cleanup_sigabrt_handler();
     }
-
-    qtest_instances = g_list_remove(qtest_instances, s);
 
     kill_qemu(s);
     close(s->fd);
@@ -340,7 +348,7 @@ typedef struct {
     QDict *response;
 } QMPResponseParser;
 
-static void qmp_response(JSONMessageParser *parser, QList *tokens)
+static void qmp_response(JSONMessageParser *parser, GQueue *tokens)
 {
     QMPResponseParser *qmp = container_of(parser, QMPResponseParser, parser);
     QObject *obj;
@@ -356,7 +364,7 @@ static void qmp_response(JSONMessageParser *parser, QList *tokens)
     qmp->response = (QDict *)obj;
 }
 
-QDict *qtest_qmp_receive(QTestState *s)
+QDict *qmp_fd_receive(int fd)
 {
     QMPResponseParser qmp;
     bool log = getenv("QTEST_LOG") != NULL;
@@ -367,7 +375,7 @@ QDict *qtest_qmp_receive(QTestState *s)
         ssize_t len;
         char c;
 
-        len = read(s->qmp_fd, &c, 1);
+        len = read(fd, &c, 1);
         if (len == -1 && errno == EINTR) {
             continue;
         }
@@ -387,7 +395,17 @@ QDict *qtest_qmp_receive(QTestState *s)
     return qmp.response;
 }
 
-QDict *qtest_qmpv(QTestState *s, const char *fmt, va_list ap)
+QDict *qtest_qmp_receive(QTestState *s)
+{
+    return qmp_fd_receive(s->qmp_fd);
+}
+
+/**
+ * Allow users to send a message without waiting for the reply,
+ * in the case that they choose to discard all replies up until
+ * a particular EVENT is received.
+ */
+void qmp_fd_sendv(int fd, const char *fmt, va_list ap)
 {
     va_list ap_copy;
     QObject *qobj;
@@ -411,14 +429,51 @@ QDict *qtest_qmpv(QTestState *s, const char *fmt, va_list ap)
             fprintf(stderr, "%s", str);
         }
         /* Send QMP request */
-        socket_send(s->qmp_fd, str, size);
+        socket_send(fd, str, size);
 
         QDECREF(qstr);
         qobject_decref(qobj);
     }
+}
+
+void qtest_async_qmpv(QTestState *s, const char *fmt, va_list ap)
+{
+    qmp_fd_sendv(s->qmp_fd, fmt, ap);
+}
+
+QDict *qmp_fdv(int fd, const char *fmt, va_list ap)
+{
+    qmp_fd_sendv(fd, fmt, ap);
+
+    return qmp_fd_receive(fd);
+}
+
+QDict *qtest_qmpv(QTestState *s, const char *fmt, va_list ap)
+{
+    qtest_async_qmpv(s, fmt, ap);
 
     /* Receive reply */
     return qtest_qmp_receive(s);
+}
+
+QDict *qmp_fd(int fd, const char *fmt, ...)
+{
+    va_list ap;
+    QDict *response;
+
+    va_start(ap, fmt);
+    response = qmp_fdv(fd, fmt, ap);
+    va_end(ap);
+    return response;
+}
+
+void qmp_fd_send(int fd, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    qmp_fd_sendv(fd, fmt, ap);
+    va_end(ap);
 }
 
 QDict *qtest_qmp(QTestState *s, const char *fmt, ...)
@@ -430,6 +485,15 @@ QDict *qtest_qmp(QTestState *s, const char *fmt, ...)
     response = qtest_qmpv(s, fmt, ap);
     va_end(ap);
     return response;
+}
+
+void qtest_async_qmp(QTestState *s, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    qtest_async_qmpv(s, fmt, ap);
+    va_end(ap);
 }
 
 void qtest_qmpv_discard_response(QTestState *s, const char *fmt, va_list ap)
@@ -447,6 +511,21 @@ void qtest_qmp_discard_response(QTestState *s, const char *fmt, ...)
     response = qtest_qmpv(s, fmt, ap);
     va_end(ap);
     QDECREF(response);
+}
+
+void qtest_qmp_eventwait(QTestState *s, const char *event)
+{
+    QDict *response;
+
+    for (;;) {
+        response = qtest_qmp_receive(s);
+        if ((qdict_haskey(response, "event")) &&
+            (strcmp(qdict_get_str(response, "event"), event) == 0)) {
+            QDECREF(response);
+            break;
+        }
+        QDECREF(response);
+    }
 }
 
 char *qtest_hmpv(QTestState *s, const char *fmt, va_list ap)
@@ -477,24 +556,10 @@ char *qtest_hmp(QTestState *s, const char *fmt, ...)
     return ret;
 }
 
-void qtest_qmp_eventwait(QTestState *s, const char *event)
-{
-    QDict *response;
-
-    for (;;) {
-        response = qtest_qmp_receive(s);
-        if ((qdict_haskey(response, "event")) &&
-            (strcmp(qdict_get_str(response, "event"), event) == 0)) {
-            QDECREF(response);
-            break;
-        }
-        QDECREF(response);
-    }
-}
-
 const char *qtest_get_arch(void)
 {
     const char *qemu = getenv("QTEST_QEMU_BINARY");
+    g_assert(qemu != NULL);
     const char *end = strrchr(qemu, '/');
 
     return end + strlen("/qemu-system-");
@@ -687,42 +752,70 @@ void qtest_memread(QTestState *s, uint64_t addr, void *data, size_t size)
     g_strfreev(args);
 }
 
-void qtest_add_func(const char *str, void (*fn))
+void qtest_add_func(const char *str, void (*fn)(void))
 {
     gchar *path = g_strdup_printf("/%s/%s", qtest_get_arch(), str);
     g_test_add_func(path, fn);
     g_free(path);
 }
 
-void qtest_add_data_func(const char *str, const void *data, void (*fn))
+void qtest_add_data_func(const char *str, const void *data,
+                         void (*fn)(const void *))
 {
     gchar *path = g_strdup_printf("/%s/%s", qtest_get_arch(), str);
     g_test_add_data_func(path, data, fn);
     g_free(path);
 }
 
+void qtest_bufwrite(QTestState *s, uint64_t addr, const void *data, size_t size)
+{
+    gchar *bdata;
+
+    bdata = g_base64_encode(data, size);
+    qtest_sendf(s, "b64write 0x%" PRIx64 " 0x%zx ", addr, size);
+    socket_send(s->fd, bdata, strlen(bdata));
+    socket_send(s->fd, "\n", 1);
+    qtest_rsp(s, 0);
+    g_free(bdata);
+}
+
+void qtest_bufread(QTestState *s, uint64_t addr, void *data, size_t size)
+{
+    gchar **args;
+    size_t len;
+
+    qtest_sendf(s, "b64read 0x%" PRIx64 " 0x%zx\n", addr, size);
+    args = qtest_rsp(s, 2);
+
+    g_base64_decode_inplace(args[1], &len);
+    if (size != len) {
+        fprintf(stderr, "bufread: asked for %zu bytes but decoded %zu\n",
+                size, len);
+        len = MIN(len, size);
+    }
+
+    memcpy(data, args[1], len);
+    g_strfreev(args);
+}
+
 void qtest_memwrite(QTestState *s, uint64_t addr, const void *data, size_t size)
 {
     const uint8_t *ptr = data;
     size_t i;
+    char *enc = g_malloc(2 * size + 1);
 
-    qtest_sendf(s, "write 0x%" PRIx64 " 0x%zx 0x", addr, size);
     for (i = 0; i < size; i++) {
-        qtest_sendf(s, "%02x", ptr[i]);
+        sprintf(&enc[i * 2], "%02x", ptr[i]);
     }
-    qtest_sendf(s, "\n");
+
+    qtest_sendf(s, "write 0x%" PRIx64 " 0x%zx 0x%s\n", addr, size, enc);
     qtest_rsp(s, 0);
+    g_free(enc);
 }
 
 void qtest_memset(QTestState *s, uint64_t addr, uint8_t pattern, size_t size)
 {
-    size_t i;
-
-    qtest_sendf(s, "write 0x%" PRIx64 " 0x%zx 0x", addr, size);
-    for (i = 0; i < size; i++) {
-        qtest_sendf(s, "%02x", pattern);
-    }
-    qtest_sendf(s, "\n");
+    qtest_sendf(s, "memset 0x%" PRIx64 " 0x%zx 0x%02x\n", addr, size, pattern);
     qtest_rsp(s, 0);
 }
 
@@ -735,6 +828,15 @@ QDict *qmp(const char *fmt, ...)
     response = qtest_qmpv(global_qtest, fmt, ap);
     va_end(ap);
     return response;
+}
+
+void qmp_async(const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    qtest_async_qmpv(global_qtest, fmt, ap);
+    va_end(ap);
 }
 
 void qmp_discard_response(const char *fmt, ...)

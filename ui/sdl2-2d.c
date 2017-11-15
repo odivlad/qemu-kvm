@@ -23,12 +23,7 @@
  */
 /* Ported SDL 1.2 code to 2.0 by Dave Airlie. */
 
-/* Avoid compiler warning because macro is redefined in SDL_syswm.h. */
-#undef WIN32_LEAN_AND_MEAN
-
-#include <SDL.h>
-#include <SDL_syswm.h>
-
+#include "qemu/osdep.h"
 #include "qemu-common.h"
 #include "ui/console.h"
 #include "ui/input.h"
@@ -42,6 +37,8 @@ void sdl2_2d_update(DisplayChangeListener *dcl,
     DisplaySurface *surf = qemu_console_surface(dcl->con);
     SDL_Rect rect;
 
+    assert(!scon->opengl);
+
     if (!surf) {
         return;
     }
@@ -49,10 +46,23 @@ void sdl2_2d_update(DisplayChangeListener *dcl,
         return;
     }
 
+    /*
+     * SDL2 seems to do some double-buffering, and trying to only
+     * update the changed areas results in only one of the two buffers
+     * being updated.  Which flickers alot.  So lets not try to be
+     * clever do a full update every time ...
+     */
+#if 0
     rect.x = x;
     rect.y = y;
     rect.w = w;
     rect.h = h;
+#else
+    rect.x = 0;
+    rect.y = 0;
+    rect.w = surface_width(surf);
+    rect.h = surface_height(surf);
+#endif
 
     SDL_UpdateTexture(scon->texture, NULL, surface_data(surf),
                       surface_stride(surf));
@@ -66,6 +76,8 @@ void sdl2_2d_switch(DisplayChangeListener *dcl,
     struct sdl2_console *scon = container_of(dcl, struct sdl2_console, dcl);
     DisplaySurface *old_surface = scon->surface;
     int format = 0;
+
+    assert(!scon->opengl);
 
     scon->surface = new_surface;
 
@@ -118,12 +130,15 @@ void sdl2_2d_refresh(DisplayChangeListener *dcl)
 {
     struct sdl2_console *scon = container_of(dcl, struct sdl2_console, dcl);
 
+    assert(!scon->opengl);
     graphic_hw_update(dcl->con);
     sdl2_poll_events(scon);
 }
 
 void sdl2_2d_redraw(struct sdl2_console *scon)
 {
+    assert(!scon->opengl);
+
     if (!scon->surface) {
         return;
     }

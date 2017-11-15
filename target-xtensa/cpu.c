@@ -28,6 +28,8 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "qemu/osdep.h"
+#include "qapi/error.h"
 #include "cpu.h"
 #include "qemu-common.h"
 #include "migration/vmstate.h"
@@ -114,7 +116,7 @@ static void xtensa_cpu_initfn(Object *obj)
 
     cs->env_ptr = env;
     env->config = xcc->config;
-    cpu_exec_init(env);
+    cpu_exec_init(cs, &error_abort);
 
     if (tcg_enabled() && !tcg_inited) {
         tcg_inited = true;

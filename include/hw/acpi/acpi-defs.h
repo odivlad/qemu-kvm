@@ -384,6 +384,15 @@ struct AcpiMadtGenericMsiFrame {
 
 typedef struct AcpiMadtGenericMsiFrame AcpiMadtGenericMsiFrame;
 
+struct AcpiMadtGenericRedistributor {
+    ACPI_SUB_HEADER_DEF
+    uint16_t reserved;
+    uint64_t base_address;
+    uint32_t range_length;
+} QEMU_PACKED;
+
+typedef struct AcpiMadtGenericRedistributor AcpiMadtGenericRedistributor;
+
 /*
  * Generic Timer Description Table (GTDT)
  */
@@ -494,6 +503,9 @@ typedef struct AcpiTableMcfg AcpiTableMcfg;
 
 /*
  * TCPA Description Table
+ *
+ * Following Level 00, Rev 00.37 of specs:
+ * http://www.trustedcomputinggroup.org/resources/tcg_acpi_specification
  */
 struct Acpi20Tcpa {
     ACPI_TABLE_HEADER_DEF                    /* ACPI common table header */
@@ -502,6 +514,21 @@ struct Acpi20Tcpa {
     uint64_t log_area_start_address;
 } QEMU_PACKED;
 typedef struct Acpi20Tcpa Acpi20Tcpa;
+
+/*
+ * TPM2
+ *
+ * Following Level 00, Rev 00.37 of specs:
+ * http://www.trustedcomputinggroup.org/resources/tcg_acpi_specification
+ */
+struct Acpi20TPM2 {
+    ACPI_TABLE_HEADER_DEF
+    uint16_t platform_class;
+    uint16_t reserved;
+    uint64_t control_area_address;
+    uint32_t start_method;
+} QEMU_PACKED;
+typedef struct Acpi20TPM2 Acpi20TPM2;
 
 /* DMAR - DMA Remapping table r2.2 */
 struct AcpiTableDmar {
@@ -529,6 +556,18 @@ enum {
 /*
  * Sub-structures for DMAR
  */
+
+/* Device scope structure for DRHD. */
+struct AcpiDmarDeviceScope {
+    uint8_t entry_type;
+    uint8_t length;
+    uint16_t reserved;
+    uint8_t enumeration_id;
+    uint8_t bus;
+    uint16_t path[0];           /* list of dev:func pairs */
+} QEMU_PACKED;
+typedef struct AcpiDmarDeviceScope AcpiDmarDeviceScope;
+
 /* Type 0: Hardware Unit Definition */
 struct AcpiDmarHardwareUnit {
     uint16_t type;
@@ -537,6 +576,7 @@ struct AcpiDmarHardwareUnit {
     uint8_t reserved;
     uint16_t pci_segment;   /* The PCI Segment associated with this unit */
     uint64_t address;   /* Base address of remapping hardware register-set */
+    AcpiDmarDeviceScope scope[0];
 } QEMU_PACKED;
 typedef struct AcpiDmarHardwareUnit AcpiDmarHardwareUnit;
 

@@ -11,6 +11,8 @@
  *
  */
 
+#include "qemu/osdep.h"
+#include "qapi/error.h"
 #include "qemu-common.h"
 #include "qemu/iov.h"
 #include "qemu/error-report.h"
@@ -20,7 +22,6 @@
 #include "sysemu/blockdev.h"
 #include "hw/virtio/virtio-blk.h"
 #include "dataplane/virtio-blk.h"
-#include "migration/migration.h"
 #include "block/scsi.h"
 #ifdef __linux__
 # include <scsi/sg.h>
@@ -28,26 +29,23 @@
 #include "hw/virtio/virtio-bus.h"
 #include "hw/virtio/virtio-access.h"
 
-VirtIOBlockReq *virtio_blk_alloc_request(VirtIOBlock *s)
+void virtio_blk_init_request(VirtIOBlock *s, VirtIOBlockReq *req)
 {
-    VirtIOBlockReq *req = g_slice_new(VirtIOBlockReq);
     req->dev = s;
     req->qiov.size = 0;
     req->in_len = 0;
     req->next = NULL;
     req->mr_next = NULL;
-    return req;
 }
 
 void virtio_blk_free_request(VirtIOBlockReq *req)
 {
     if (req) {
-        g_slice_free(VirtIOBlockReq, req);
+        g_free(req);
     }
 }
 
-static void virtio_blk_complete_request(VirtIOBlockReq *req,
-                                        unsigned char status)
+static void virtio_blk_req_complete(VirtIOBlockReq *req, unsigned char status)
 {
     VirtIOBlock *s = req->dev;
     VirtIODevice *vdev = VIRTIO_DEVICE(s);
@@ -56,12 +54,11 @@ static void virtio_blk_complete_request(VirtIOBlockReq *req,
 
     stb_p(&req->in->status, status);
     virtqueue_push(s->vq, &req->elem, req->in_len);
-    virtio_notify(vdev, s->vq);
-}
-
-static void virtio_blk_req_complete(VirtIOBlockReq *req, unsigned char status)
-{
-    req->dev->complete_request(req, status);
+    if (s->dataplane_started && !s->dataplane_disabled) {
+        virtio_blk_data_plane_notify(s->dataplane);
+    } else {
+        virtio_notify(vdev, s->vq);
+    }
 }
 
 static int virtio_blk_handle_rw_error(VirtIOBlockReq *req, int error,
@@ -79,7 +76,7 @@ static int virtio_blk_handle_rw_error(VirtIOBlockReq *req, int error,
         s->rq = req;
     } else if (action == BLOCK_ERROR_ACTION_REPORT) {
         virtio_blk_req_complete(req, VIRTIO_BLK_S_IOERR);
-        block_acct_done(blk_get_stats(s->blk), &req->acct);
+        block_acct_failed(blk_get_stats(s->blk), &req->acct);
         virtio_blk_free_request(req);
     }
 
@@ -192,13 +189,11 @@ out:
 
 static VirtIOBlockReq *virtio_blk_get_request(VirtIOBlock *s)
 {
-    VirtIOBlockReq *req = virtio_blk_alloc_request(s);
+    VirtIOBlockReq *req = virtqueue_pop(s->vq, sizeof(VirtIOBlockReq));
 
-    if (!virtqueue_pop(s->vq, &req->elem)) {
-        virtio_blk_free_request(req);
-        return NULL;
+    if (req) {
+        virtio_blk_init_request(s, req);
     }
-
     return req;
 }
 
@@ -407,24 +402,16 @@ void virtio_blk_submit_multireq(BlockBackend *blk, MultiReqBuffer *mrb)
     for (i = 0; i < mrb->num_reqs; i++) {
         VirtIOBlockReq *req = mrb->reqs[i];
         if (num_reqs > 0) {
-            bool merge = true;
-
-            /* merge would exceed maximum number of IOVs */
-            if (niov + req->qiov.niov > IOV_MAX) {
-                merge = false;
-            }
-
-            /* merge would exceed maximum transfer length of backend device */
-            if (req->qiov.size / BDRV_SECTOR_SIZE + nb_sectors > max_xfer_len) {
-                merge = false;
-            }
-
-            /* requests are not sequential */
-            if (sector_num + nb_sectors != req->sector_num) {
-                merge = false;
-            }
-
-            if (!merge) {
+            /*
+             * NOTE: We cannot merge the requests in below situations:
+             * 1. requests are not sequential
+             * 2. merge would exceed maximum number of IOVs
+             * 3. merge would exceed maximum transfer length of backend device
+             */
+            if (sector_num + nb_sectors != req->sector_num ||
+                niov > blk_get_max_iov(blk) - req->qiov.niov ||
+                req->qiov.size / BDRV_SECTOR_SIZE > max_xfer_len ||
+                nb_sectors > max_xfer_len - req->qiov.size / BDRV_SECTOR_SIZE) {
                 submit_requests(blk, mrb, start, num_reqs, niov);
                 num_reqs = 0;
             }
@@ -502,8 +489,7 @@ void virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb)
 
     iov_discard_front(&iov, &out_num, sizeof(req->out));
 
-    if (in_num < 1 ||
-        in_iov[in_num - 1].iov_len < sizeof(struct virtio_blk_inhdr)) {
+    if (in_iov[in_num - 1].iov_len < sizeof(struct virtio_blk_inhdr)) {
         error_report("virtio-blk request inhdr too short");
         exit(1);
     }
@@ -518,7 +504,7 @@ void virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb)
     type = virtio_ldl_p(VIRTIO_DEVICE(req->dev), &req->out.type);
 
     /* VIRTIO_BLK_T_OUT defines the command direction. VIRTIO_BLK_T_BARRIER
-     * is an optional flag. Altough a guest should not send this flag if
+     * is an optional flag. Although a guest should not send this flag if
      * not negotiated we ignored it in the past. So keep ignoring it. */
     switch (type & ~(VIRTIO_BLK_T_OUT | VIRTIO_BLK_T_BARRIER)) {
     case VIRTIO_BLK_T_IN:
@@ -540,6 +526,8 @@ void virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb)
         if (!virtio_blk_sect_range_ok(req->dev, req->sector_num,
                                       req->qiov.size)) {
             virtio_blk_req_complete(req, VIRTIO_BLK_S_IOERR);
+            block_acct_invalid(blk_get_stats(req->dev->blk),
+                               is_write ? BLOCK_ACCT_WRITE : BLOCK_ACCT_READ);
             virtio_blk_free_request(req);
             return;
         }
@@ -590,19 +578,10 @@ void virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb)
     }
 }
 
-static void virtio_blk_handle_output(VirtIODevice *vdev, VirtQueue *vq)
+void virtio_blk_handle_vq(VirtIOBlock *s, VirtQueue *vq)
 {
-    VirtIOBlock *s = VIRTIO_BLK(vdev);
     VirtIOBlockReq *req;
     MultiReqBuffer mrb = {};
-
-    /* Some guests kick before setting VIRTIO_CONFIG_S_DRIVER_OK so start
-     * dataplane here instead of waiting for .set_status().
-     */
-    if (s->dataplane) {
-        virtio_blk_data_plane_start(s->dataplane);
-        return;
-    }
 
     blk_io_plug(s->blk);
 
@@ -615,6 +594,22 @@ static void virtio_blk_handle_output(VirtIODevice *vdev, VirtQueue *vq)
     }
 
     blk_io_unplug(s->blk);
+}
+
+static void virtio_blk_handle_output(VirtIODevice *vdev, VirtQueue *vq)
+{
+    VirtIOBlock *s = (VirtIOBlock *)vdev;
+
+    if (s->dataplane) {
+        /* Some guests kick before setting VIRTIO_CONFIG_S_DRIVER_OK so start
+         * dataplane here instead of waiting for .set_status().
+         */
+        virtio_blk_data_plane_start(s->dataplane);
+        if (!s->dataplane_disabled) {
+            return;
+        }
+    }
+    virtio_blk_handle_vq(s, vq);
 }
 
 static void virtio_blk_dma_restart_bh(void *opaque)
@@ -658,16 +653,26 @@ static void virtio_blk_dma_restart_cb(void *opaque, int running,
 static void virtio_blk_reset(VirtIODevice *vdev)
 {
     VirtIOBlock *s = VIRTIO_BLK(vdev);
+    AioContext *ctx;
+    VirtIOBlockReq *req;
+
+    ctx = blk_get_aio_context(s->blk);
+    aio_context_acquire(ctx);
+    blk_drain(s->blk);
+
+    /* We drop queued requests after blk_drain() because blk_drain() itself can
+     * produce them. */
+    while (s->rq) {
+        req = s->rq;
+        s->rq = req->next;
+        virtio_blk_free_request(req);
+    }
 
     if (s->dataplane) {
         virtio_blk_data_plane_stop(s->dataplane);
     }
+    aio_context_release(ctx);
 
-    /*
-     * This should cancel pending requests, but can't do nicely until there
-     * are per-device request lists.
-     */
-    blk_drain_all();
     blk_set_enable_write_cache(s->blk, s->original_wce);
 }
 
@@ -797,6 +802,11 @@ static void virtio_blk_set_status(VirtIODevice *vdev, uint8_t status)
 static void virtio_blk_save(QEMUFile *f, void *opaque)
 {
     VirtIODevice *vdev = VIRTIO_DEVICE(opaque);
+    VirtIOBlock *s = VIRTIO_BLK(vdev);
+
+    if (s->dataplane) {
+        virtio_blk_data_plane_stop(s->dataplane);
+    }
 
     virtio_save(vdev, f);
 }
@@ -808,8 +818,7 @@ static void virtio_blk_save_device(VirtIODevice *vdev, QEMUFile *f)
 
     while (req) {
         qemu_put_sbyte(f, 1);
-        qemu_put_buffer(f, (unsigned char *)&req->elem,
-                        sizeof(VirtQueueElement));
+        qemu_put_virtqueue_element(f, &req->elem);
         req = req->next;
     }
     qemu_put_sbyte(f, 0);
@@ -832,13 +841,11 @@ static int virtio_blk_load_device(VirtIODevice *vdev, QEMUFile *f,
     VirtIOBlock *s = VIRTIO_BLK(vdev);
 
     while (qemu_get_sbyte(f)) {
-        VirtIOBlockReq *req = virtio_blk_alloc_request(s);
-        qemu_get_buffer(f, (unsigned char *)&req->elem,
-                        sizeof(VirtQueueElement));
+        VirtIOBlockReq *req;
+        req = qemu_get_virtqueue_element(f, sizeof(VirtIOBlockReq));
+        virtio_blk_init_request(s, req);
         req->next = s->rq;
         s->rq = req;
-
-        virtqueue_map(&req->elem);
     }
 
     return 0;
@@ -854,36 +861,6 @@ static void virtio_blk_resize(void *opaque)
 static const BlockDevOps virtio_block_ops = {
     .resize_cb = virtio_blk_resize,
 };
-
-/* Disable dataplane thread during live migration since it does not
- * update the dirty memory bitmap yet.
- */
-static void virtio_blk_migration_state_changed(Notifier *notifier, void *data)
-{
-    VirtIOBlock *s = container_of(notifier, VirtIOBlock,
-                                  migration_state_notifier);
-    MigrationState *mig = data;
-    Error *err = NULL;
-
-    if (migration_in_setup(mig)) {
-        if (!s->dataplane) {
-            return;
-        }
-        virtio_blk_data_plane_destroy(s->dataplane);
-        s->dataplane = NULL;
-    } else if (migration_has_finished(mig) ||
-               migration_has_failed(mig)) {
-        if (s->dataplane) {
-            return;
-        }
-        blk_drain_all(); /* complete in-flight non-dataplane requests */
-        virtio_blk_data_plane_create(VIRTIO_DEVICE(s), &s->conf,
-                                     &s->dataplane, &err);
-        if (err != NULL) {
-            error_report_err(err);
-        }
-    }
-}
 
 static void virtio_blk_device_realize(DeviceState *dev, Error **errp)
 {
@@ -919,15 +896,12 @@ static void virtio_blk_device_realize(DeviceState *dev, Error **errp)
     s->sector_mask = (s->conf.conf.logical_block_size / BDRV_SECTOR_SIZE) - 1;
 
     s->vq = virtio_add_queue(vdev, 128, virtio_blk_handle_output);
-    s->complete_request = virtio_blk_complete_request;
     virtio_blk_data_plane_create(vdev, conf, &s->dataplane, &err);
     if (err != NULL) {
         error_propagate(errp, err);
         virtio_cleanup(vdev);
         return;
     }
-    s->migration_state_notifier.notify = virtio_blk_migration_state_changed;
-    add_migration_state_change_notifier(&s->migration_state_notifier);
 
     s->change = qemu_add_vm_change_state_handler(virtio_blk_dma_restart_cb, s);
     register_savevm(dev, "virtio-blk", virtio_blk_id++, 2,
@@ -943,7 +917,6 @@ static void virtio_blk_device_unrealize(DeviceState *dev, Error **errp)
     VirtIODevice *vdev = VIRTIO_DEVICE(dev);
     VirtIOBlock *s = VIRTIO_BLK(dev);
 
-    remove_migration_state_change_notifier(&s->migration_state_notifier);
     virtio_blk_data_plane_destroy(s->dataplane);
     s->dataplane = NULL;
     qemu_del_vm_change_state_handler(s->change);
@@ -971,11 +944,10 @@ static Property virtio_blk_properties[] = {
     DEFINE_PROP_STRING("serial", VirtIOBlock, conf.serial),
     DEFINE_PROP_BIT("config-wce", VirtIOBlock, conf.config_wce, 0, true),
 #ifdef __linux__
-    DEFINE_PROP_BIT("scsi", VirtIOBlock, conf.scsi, 0, true),
+    DEFINE_PROP_BIT("scsi", VirtIOBlock, conf.scsi, 0, false),
 #endif
     DEFINE_PROP_BIT("request-merging", VirtIOBlock, conf.request_merging, 0,
                     true),
-    DEFINE_PROP_BIT("x-data-plane", VirtIOBlock, conf.data_plane, 0, false),
     DEFINE_PROP_END_OF_LIST(),
 };
 

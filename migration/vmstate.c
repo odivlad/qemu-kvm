@@ -1,3 +1,4 @@
+#include "qemu/osdep.h"
 #include "qemu-common.h"
 #include "migration/migration.h"
 #include "migration/qemu-file.h"
@@ -26,6 +27,10 @@ static int vmstate_n_elems(void *opaque, VMStateField *field)
         n_elems = *(uint16_t *)(opaque+field->num_offset);
     } else if (field->flags & VMS_VARRAY_UINT8) {
         n_elems = *(uint8_t *)(opaque+field->num_offset);
+    }
+
+    if (field->flags & VMS_MULTIPLY_ELEMENTS) {
+        n_elems *= field->num;
     }
 
     return n_elems;
@@ -369,7 +374,7 @@ static int vmstate_subsection_load(QEMUFile *f, const VMStateDescription *vmsd,
     trace_vmstate_subsection_load(vmsd->name);
 
     while (qemu_peek_byte(f, 0) == QEMU_VM_SUBSECTION) {
-        char idstr[256];
+        char idstr[256], *idstr_ret;
         int ret;
         uint8_t version_id, len, size;
         const VMStateDescription *sub_vmsd;
@@ -380,11 +385,12 @@ static int vmstate_subsection_load(QEMUFile *f, const VMStateDescription *vmsd,
             trace_vmstate_subsection_load_bad(vmsd->name, "(short)");
             return 0;
         }
-        size = qemu_peek_buffer(f, (uint8_t *)idstr, len, 2);
+        size = qemu_peek_buffer(f, (uint8_t **)&idstr_ret, len, 2);
         if (size != len) {
             trace_vmstate_subsection_load_bad(vmsd->name, "(peek fail)");
             return 0;
         }
+        memcpy(idstr, idstr_ret, size);
         idstr[size] = 0;
 
         if (strncmp(vmsd->name, idstr, strlen(vmsd->name)) != 0) {
@@ -791,6 +797,29 @@ const VMStateInfo vmstate_info_float64 = {
     .name = "float64",
     .get  = get_float64,
     .put  = put_float64,
+};
+
+/* CPU_DoubleU type */
+
+static int get_cpudouble(QEMUFile *f, void *pv, size_t size)
+{
+    CPU_DoubleU *v = pv;
+    qemu_get_be32s(f, &v->l.upper);
+    qemu_get_be32s(f, &v->l.lower);
+    return 0;
+}
+
+static void put_cpudouble(QEMUFile *f, void *pv, size_t size)
+{
+    CPU_DoubleU *v = pv;
+    qemu_put_be32s(f, &v->l.upper);
+    qemu_put_be32s(f, &v->l.lower);
+}
+
+const VMStateInfo vmstate_info_cpudouble = {
+    .name = "CPU_Double_U",
+    .get  = get_cpudouble,
+    .put  = put_cpudouble,
 };
 
 /* uint8_t buffers */

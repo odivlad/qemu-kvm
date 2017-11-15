@@ -24,6 +24,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#include "qemu/osdep.h"
+#include "qapi/error.h"
+#include "qemu-common.h"
+#include "cpu.h"
 #include "hw/hw.h"
 #include "hw/mips/mips.h"
 #include "hw/mips/cpudevs.h"
@@ -69,7 +73,7 @@ static int64_t load_kernel(void)
     kernel_size = load_elf(loaderparams.kernel_filename, cpu_mips_kseg0_to_phys,
                            NULL, (uint64_t *)&entry, NULL,
                            (uint64_t *)&kernel_high, big_endian,
-                           ELF_MACHINE, 1);
+                           EM_MIPS, 1, 0);
     if (kernel_size >= 0) {
         if ((entry & ~0x7fffffffULL) == 0x80000000)
             entry = (int32_t)entry;
@@ -231,15 +235,10 @@ mips_mipssim_init(MachineState *machine)
         mipsnet_init(0x4200, env->irq[2], &nd_table[0]);
 }
 
-static QEMUMachine mips_mipssim_machine = {
-    .name = "mipssim",
-    .desc = "MIPS MIPSsim platform",
-    .init = mips_mipssim_init,
-};
-
-static void mips_mipssim_machine_init(void)
+static void mips_mipssim_machine_init(MachineClass *mc)
 {
-    qemu_register_machine(&mips_mipssim_machine);
+    mc->desc = "MIPS MIPSsim platform";
+    mc->init = mips_mipssim_init;
 }
 
-machine_init(mips_mipssim_machine_init);
+DEFINE_MACHINE("mipssim", mips_mipssim_machine_init)

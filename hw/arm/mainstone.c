@@ -11,6 +11,8 @@
  * Contributions after 2012-01-13 are licensed under the terms of the
  * GNU GPL, version 2 or (at your option) any later version.
  */
+#include "qemu/osdep.h"
+#include "qapi/error.h"
 #include "hw/hw.h"
 #include "hw/arm/pxa.h"
 #include "hw/arm/arm.h"
@@ -188,15 +190,10 @@ static void mainstone_init(MachineState *machine)
     mainstone_common_init(get_system_memory(), machine, mainstone, 0x196);
 }
 
-static QEMUMachine mainstone2_machine = {
-    .name = "mainstone",
-    .desc = "Mainstone II (PXA27x)",
-    .init = mainstone_init,
-};
-
-static void mainstone_machine_init(void)
+static void mainstone2_machine_init(MachineClass *mc)
 {
-    qemu_register_machine(&mainstone2_machine);
+    mc->desc = "Mainstone II (PXA27x)";
+    mc->init = mainstone_init;
 }
 
-machine_init(mainstone_machine_init);
+DEFINE_MACHINE("mainstone", mainstone2_machine_init)

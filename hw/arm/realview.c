@@ -7,6 +7,10 @@
  * This code is licensed under the GPL.
  */
 
+#include "qemu/osdep.h"
+#include "qapi/error.h"
+#include "qemu-common.h"
+#include "cpu.h"
 #include "hw/sysbus.h"
 #include "hw/arm/arm.h"
 #include "hw/arm/primecell.h"
@@ -99,33 +103,21 @@ static void realview_init(MachineState *machine,
 
     for (n = 0; n < smp_cpus; n++) {
         Object *cpuobj = object_new(object_class_get_name(cpu_oc));
-        Error *err = NULL;
 
         /* By default A9,A15 and ARM1176 CPUs have EL3 enabled.  This board
          * does not currently support EL3 so the CPU EL3 property is disabled
          * before realization.
          */
         if (object_property_find(cpuobj, "has_el3", NULL)) {
-            object_property_set_bool(cpuobj, false, "has_el3", &err);
-            if (err) {
-                error_report_err(err);
-                exit(1);
-            }
+            object_property_set_bool(cpuobj, false, "has_el3", &error_fatal);
         }
 
         if (is_pb && is_mpcore) {
-            object_property_set_int(cpuobj, periphbase, "reset-cbar", &err);
-            if (err) {
-                error_report_err(err);
-                exit(1);
-            }
+            object_property_set_int(cpuobj, periphbase, "reset-cbar",
+                                    &error_fatal);
         }
 
-        object_property_set_bool(cpuobj, true, "realized", &err);
-        if (err) {
-            error_report_err(err);
-            exit(1);
-        }
+        object_property_set_bool(cpuobj, true, "realized", &error_fatal);
 
         cpu_irq[n] = qdev_get_gpio_in(DEVICE(cpuobj), ARM_CPU_IRQ);
     }
@@ -399,41 +391,73 @@ static void realview_pbx_a9_init(MachineState *machine)
     realview_init(machine, BOARD_PBX_A9);
 }
 
-static QEMUMachine realview_eb_machine = {
-    .name = "realview-eb",
-    .desc = "ARM RealView Emulation Baseboard (ARM926EJ-S)",
-    .init = realview_eb_init,
-    .block_default_type = IF_SCSI,
+static void realview_eb_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+
+    mc->desc = "ARM RealView Emulation Baseboard (ARM926EJ-S)";
+    mc->init = realview_eb_init;
+    mc->block_default_type = IF_SCSI;
+}
+
+static const TypeInfo realview_eb_type = {
+    .name = MACHINE_TYPE_NAME("realview-eb"),
+    .parent = TYPE_MACHINE,
+    .class_init = realview_eb_class_init,
 };
 
-static QEMUMachine realview_eb_mpcore_machine = {
-    .name = "realview-eb-mpcore",
-    .desc = "ARM RealView Emulation Baseboard (ARM11MPCore)",
-    .init = realview_eb_mpcore_init,
-    .block_default_type = IF_SCSI,
-    .max_cpus = 4,
+static void realview_eb_mpcore_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+
+    mc->desc = "ARM RealView Emulation Baseboard (ARM11MPCore)";
+    mc->init = realview_eb_mpcore_init;
+    mc->block_default_type = IF_SCSI;
+    mc->max_cpus = 4;
+}
+
+static const TypeInfo realview_eb_mpcore_type = {
+    .name = MACHINE_TYPE_NAME("realview-eb-mpcore"),
+    .parent = TYPE_MACHINE,
+    .class_init = realview_eb_mpcore_class_init,
 };
 
-static QEMUMachine realview_pb_a8_machine = {
-    .name = "realview-pb-a8",
-    .desc = "ARM RealView Platform Baseboard for Cortex-A8",
-    .init = realview_pb_a8_init,
+static void realview_pb_a8_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+
+    mc->desc = "ARM RealView Platform Baseboard for Cortex-A8";
+    mc->init = realview_pb_a8_init;
+}
+
+static const TypeInfo realview_pb_a8_type = {
+    .name = MACHINE_TYPE_NAME("realview-pb-a8"),
+    .parent = TYPE_MACHINE,
+    .class_init = realview_pb_a8_class_init,
 };
 
-static QEMUMachine realview_pbx_a9_machine = {
-    .name = "realview-pbx-a9",
-    .desc = "ARM RealView Platform Baseboard Explore for Cortex-A9",
-    .init = realview_pbx_a9_init,
-    .block_default_type = IF_SCSI,
-    .max_cpus = 4,
+static void realview_pbx_a9_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+
+    mc->desc = "ARM RealView Platform Baseboard Explore for Cortex-A9";
+    mc->init = realview_pbx_a9_init;
+    mc->block_default_type = IF_SCSI;
+    mc->max_cpus = 4;
+}
+
+static const TypeInfo realview_pbx_a9_type = {
+    .name = MACHINE_TYPE_NAME("realview-pbx-a9"),
+    .parent = TYPE_MACHINE,
+    .class_init = realview_pbx_a9_class_init,
 };
 
 static void realview_machine_init(void)
 {
-    qemu_register_machine(&realview_eb_machine);
-    qemu_register_machine(&realview_eb_mpcore_machine);
-    qemu_register_machine(&realview_pb_a8_machine);
-    qemu_register_machine(&realview_pbx_a9_machine);
+    type_register_static(&realview_eb_type);
+    type_register_static(&realview_eb_mpcore_type);
+    type_register_static(&realview_pb_a8_type);
+    type_register_static(&realview_pbx_a9_type);
 }
 
-machine_init(realview_machine_init);
+type_init(realview_machine_init)

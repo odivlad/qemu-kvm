@@ -44,13 +44,21 @@ typedef struct VirtioBusClass {
     void (*notify)(DeviceState *d, uint16_t vector);
     void (*save_config)(DeviceState *d, QEMUFile *f);
     void (*save_queue)(DeviceState *d, int n, QEMUFile *f);
+    void (*save_extra_state)(DeviceState *d, QEMUFile *f);
     int (*load_config)(DeviceState *d, QEMUFile *f);
     int (*load_queue)(DeviceState *d, int n, QEMUFile *f);
     int (*load_done)(DeviceState *d, QEMUFile *f);
+    int (*load_extra_state)(DeviceState *d, QEMUFile *f);
+    bool (*has_extra_state)(DeviceState *d);
     bool (*query_guest_notifiers)(DeviceState *d);
     int (*set_guest_notifiers)(DeviceState *d, int nvqs, bool assign);
     int (*set_host_notifier)(DeviceState *d, int n, bool assigned);
     void (*vmstate_change)(DeviceState *d, bool running);
+    /*
+     * Expose the features the transport layer supports before
+     * the negotiation takes place.
+     */
+    void (*pre_plugged)(DeviceState *d, Error **errp);
     /*
      * transport independent init function.
      * This is called by virtio-bus just after the device is plugged.

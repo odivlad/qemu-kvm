@@ -11,11 +11,12 @@
  *
  */
 
+#include "qemu/osdep.h"
+#include "qapi/error.h"
 #include "qapi/qmp/types.h"
 #include "qapi/qmp/dispatch.h"
 #include "qapi/qmp/json-parser.h"
 #include "qapi-types.h"
-#include "qapi/error.h"
 #include "qapi/qmp/qerror.h"
 
 static QDict *qmp_dispatch_check_obj(const QObject *request, Error **errp)
@@ -27,8 +28,8 @@ static QDict *qmp_dispatch_check_obj(const QObject *request, Error **errp)
     QDict *dict = NULL;
 
     if (qobject_type(request) != QTYPE_QDICT) {
-        error_set(errp, QERR_QMP_BAD_INPUT_OBJECT,
-                  "request is not a dictionary");
+        error_setg(errp, QERR_QMP_BAD_INPUT_OBJECT,
+                   "request is not a dictionary");
         return NULL;
     }
 
@@ -41,19 +42,19 @@ static QDict *qmp_dispatch_check_obj(const QObject *request, Error **errp)
 
         if (!strcmp(arg_name, "execute")) {
             if (qobject_type(arg_obj) != QTYPE_QSTRING) {
-                error_set(errp, QERR_QMP_BAD_INPUT_OBJECT_MEMBER, "execute",
-                          "string");
+                error_setg(errp, QERR_QMP_BAD_INPUT_OBJECT_MEMBER, "execute",
+                           "string");
                 return NULL;
             }
             has_exec_key = true;
         } else if (strcmp(arg_name, "arguments")) {
-            error_set(errp, QERR_QMP_EXTRA_MEMBER, arg_name);
+            error_setg(errp, QERR_QMP_EXTRA_MEMBER, arg_name);
             return NULL;
         }
     }
 
     if (!has_exec_key) {
-        error_set(errp, QERR_QMP_BAD_INPUT_OBJECT, "execute");
+        error_setg(errp, QERR_QMP_BAD_INPUT_OBJECT, "execute");
         return NULL;
     }
 
@@ -114,7 +115,7 @@ static QObject *do_qmp_dispatch(QObject *request, Error **errp)
 QObject *qmp_build_error_object(Error *err)
 {
     return qobject_from_jsonf("{ 'class': %s, 'desc': %s }",
-                              ErrorClass_lookup[error_get_class(err)],
+                              QapiErrorClass_lookup[error_get_class(err)],
                               error_get_pretty(err));
 }
 

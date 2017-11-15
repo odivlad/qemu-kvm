@@ -11,6 +11,7 @@ CONFIG_PCI_TESTDEV=y
 
 include sound.mak
 include usb.mak
+CONFIG_VIRTIO_VGA=y
 CONFIG_VGA=y
 CONFIG_VGA_PCI=y
 CONFIG_SERIAL=y

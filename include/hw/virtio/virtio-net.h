@@ -21,9 +21,6 @@
 #define VIRTIO_NET(obj) \
         OBJECT_CHECK(VirtIONet, (obj), TYPE_VIRTIO_NET)
 
-#define VIRTIO_NET_F_CTRL_GUEST_OFFLOADS 2 /* Control channel offload
-                                         * configuration support */
-
 #define TX_TIMER_INTERVAL 150000 /* 150 us */
 
 /* Limit the number of packets that can be sent via a single flush
@@ -38,6 +35,7 @@ typedef struct virtio_net_conf
     uint32_t txtimer;
     int32_t txburst;
     char *tx;
+    uint16_t rx_queue_size;
 } virtio_net_conf;
 
 /* Maximum packet size we can receive from tap device: header + 64k */
@@ -50,8 +48,7 @@ typedef struct VirtIONetQueue {
     QEMUBH *tx_bh;
     int tx_waiting;
     struct {
-        VirtQueueElement elem;
-        ssize_t len;
+        VirtQueueElement *elem;
     } async_tx;
     struct VirtIONet *n;
 } VirtIONetQueue;
@@ -98,16 +95,8 @@ typedef struct VirtIONet {
     uint64_t curr_guest_offloads;
     QEMUTimer *announce_timer;
     int announce_counter;
+    bool needs_vnet_hdr_swap;
 } VirtIONet;
-
-/*
- * Control network offloads
- *
- * Dynamic offloads are available with the
- * VIRTIO_NET_F_CTRL_GUEST_OFFLOADS feature bit.
- */
-#define VIRTIO_NET_CTRL_GUEST_OFFLOADS   5
-#define VIRTIO_NET_CTRL_GUEST_OFFLOADS_SET        0
 
 void virtio_net_set_netclient_name(VirtIONet *n, const char *name,
                                    const char *type);

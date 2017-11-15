@@ -53,7 +53,8 @@ typedef struct PCIQXLDevice {
 
     struct guest_slots {
         QXLMemSlot     slot;
-        void           *ptr;
+        MemoryRegion   *mr;
+        uint64_t       offset;
         uint64_t       size;
         uint64_t       delta;
         uint32_t       active;
@@ -99,6 +100,9 @@ typedef struct PCIQXLDevice {
     QXLModes           *modes;
     uint32_t           rom_size;
     MemoryRegion       rom_bar;
+#if SPICE_SERVER_VERSION >= 0x000c06 /* release 0.12.6 */
+    uint16_t           max_outputs;
+#endif
 
     /* vram pci bar */
     uint32_t           vram_size;
@@ -121,6 +125,9 @@ typedef struct PCIQXLDevice {
     QXLRect            dirty[QXL_NUM_DIRTY_RECTS];
     QEMUBH            *update_area_bh;
 } PCIQXLDevice;
+
+#define TYPE_PCI_QXL "pci-qxl"
+#define PCI_QXL(obj) OBJECT_CHECK(PCIQXLDevice, (obj), TYPE_PCI_QXL)
 
 #define PANIC_ON(x) if ((x)) {                         \
     printf("%s: PANIC %s failed\n", __FUNCTION__, #x); \

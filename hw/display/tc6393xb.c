@@ -10,6 +10,8 @@
  * Contributions after 2012-01-13 are licensed under the terms of the
  * GNU GPL, version 2 or (at your option) any later version.
  */
+#include "qemu/osdep.h"
+#include "qapi/error.h"
 #include "hw/hw.h"
 #include "hw/devices.h"
 #include "hw/block/flash.h"
@@ -171,7 +173,7 @@ static void tc6393xb_gpio_handler_update(TC6393xbState *s)
     level = s->gpio_level & s->gpio_dir;
 
     for (diff = s->prev_level ^ level; diff; diff ^= 1 << bit) {
-        bit = ffs(diff) - 1;
+        bit = ctz32(diff);
         qemu_set_irq(s->handler[bit], (level >> bit) & 1);
     }
 
@@ -571,7 +573,7 @@ TC6393xbState *tc6393xb_init(MemoryRegion *sysmem, uint32_t base, qemu_irq irq)
     s->irq = irq;
     s->gpio_in = qemu_allocate_irqs(tc6393xb_gpio_set, s, TC6393XB_GPIOS);
 
-    s->l3v = *qemu_allocate_irqs(tc6393xb_l3v, s, 1);
+    s->l3v = qemu_allocate_irq(tc6393xb_l3v, s, 0);
     s->blanked = 1;
 
     s->sub_irqs = qemu_allocate_irqs(tc6393xb_sub_irq, s, TC6393XB_NR_IRQS);

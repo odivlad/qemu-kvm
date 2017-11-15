@@ -21,7 +21,6 @@
 #define QEMU_SPARC_CPU_QOM_H
 
 #include "qom/cpu.h"
-#include "cpu.h"
 
 #ifdef TARGET_SPARC64
 #define TYPE_SPARC_CPU "sparc64-cpu"
@@ -74,6 +73,10 @@ static inline SPARCCPU *sparc_env_get_cpu(CPUSPARCState *env)
 #define ENV_GET_CPU(e) CPU(sparc_env_get_cpu(e))
 
 #define ENV_OFFSET offsetof(SPARCCPU, env)
+
+#ifndef CONFIG_USER_ONLY
+extern const struct VMStateDescription vmstate_sparc_cpu;
+#endif
 
 void sparc_cpu_do_interrupt(CPUState *cpu);
 void sparc_cpu_dump_state(CPUState *cpu, FILE *f,

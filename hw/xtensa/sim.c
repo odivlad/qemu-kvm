@@ -25,6 +25,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "qemu/osdep.h"
+#include "qapi/error.h"
+#include "qemu-common.h"
+#include "cpu.h"
 #include "sysemu/sysemu.h"
 #include "hw/boards.h"
 #include "hw/loader.h"
@@ -93,10 +97,10 @@ static void xtensa_sim_init(MachineState *machine)
         uint64_t elf_lowaddr;
 #ifdef TARGET_WORDS_BIGENDIAN
         int success = load_elf(kernel_filename, translate_phys_addr, cpu,
-                &elf_entry, &elf_lowaddr, NULL, 1, ELF_MACHINE, 0);
+                &elf_entry, &elf_lowaddr, NULL, 1, EM_XTENSA, 0, 0);
 #else
         int success = load_elf(kernel_filename, translate_phys_addr, cpu,
-                &elf_entry, &elf_lowaddr, NULL, 0, ELF_MACHINE, 0);
+                &elf_entry, &elf_lowaddr, NULL, 0, EM_XTENSA, 0, 0);
 #endif
         if (success > 0) {
             env->pc = elf_entry;
@@ -104,17 +108,12 @@ static void xtensa_sim_init(MachineState *machine)
     }
 }
 
-static QEMUMachine xtensa_sim_machine = {
-    .name = "sim",
-    .desc = "sim machine (" XTENSA_DEFAULT_CPU_MODEL ")",
-    .is_default = true,
-    .init = xtensa_sim_init,
-    .max_cpus = 4,
-};
-
-static void xtensa_sim_machine_init(void)
+static void xtensa_sim_machine_init(MachineClass *mc)
 {
-    qemu_register_machine(&xtensa_sim_machine);
+    mc->desc = "sim machine (" XTENSA_DEFAULT_CPU_MODEL ")";
+    mc->is_default = true;
+    mc->init = xtensa_sim_init;
+    mc->max_cpus = 4;
 }
 
-machine_init(xtensa_sim_machine_init);
+DEFINE_MACHINE("sim", xtensa_sim_machine_init)

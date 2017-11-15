@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  */
 
+#include "qemu/osdep.h"
 #include "hw/hw.h"
 #include "hw/boards.h"
 #include "sysemu/block-backend.h"
@@ -29,6 +30,11 @@
 #include "qemu/config-file.h"
 #include "sysemu/sysemu.h"
 #include "monitor/monitor.h"
+#include "block/block_int.h"
+#include "qemu/error-report.h"
+#include "qapi/qmp/qerror.h"
+#include "qapi/error.h"
+
 
 static DriveInfo *add_init_drive(const char *optstr)
 {
@@ -54,6 +60,12 @@ void hmp_drive_add(Monitor *mon, const QDict *qdict)
 {
     DriveInfo *dinfo = NULL;
     const char *opts = qdict_get_str(qdict, "opts");
+    bool node = qdict_get_try_bool(qdict, "node", false);
+
+    if (node) {
+        hmp_drive_add_node(mon, opts);
+        return;
+    }
 
     dinfo = add_init_drive(opts);
     if (!dinfo) {
@@ -76,7 +88,9 @@ void hmp_drive_add(Monitor *mon, const QDict *qdict)
 
 err:
     if (dinfo) {
-        blk_unref(blk_by_legacy_dinfo(dinfo));
+        BlockBackend *blk = blk_by_legacy_dinfo(dinfo);
+        monitor_remove_blk(blk);
+        blk_unref(blk);
     }
 }
 
@@ -96,15 +110,14 @@ static void check_parm(const char *key, QObject *obj, void *opaque)
 
     for (p = unwanted_keys; *p; p++) {
         if (!strcmp(key, *p)) {
-            qerror_report(QERR_INVALID_PARAMETER, key);
+            error_report(QERR_INVALID_PARAMETER, key);
             *stopped = 1;
             return;
         }
     }
-
 }
 
-int simple_drive_add(Monitor *mon, const QDict *qdict, QObject **ret_data)
+void qmp_simple_drive_add(QDict *qdict, QObject **ret_data, Error **errp)
 {
     int stopped;
     Error *local_err = NULL;
@@ -113,39 +126,39 @@ int simple_drive_add(Monitor *mon, const QDict *qdict, QObject **ret_data)
     MachineClass *mc;
 
     if (!qdict_haskey(qdict, "id")) {
-        qerror_report(QERR_MISSING_PARAMETER, "id");
-        return -1;
+        error_setg(errp, QERR_MISSING_PARAMETER, "id");
+        return;
     }
 
     stopped = 0;
     qdict_iter(qdict, check_parm, &stopped);
     if (stopped) {
-        return -1;
+        return;
     }
 
     opts = qemu_opts_from_qdict(&qemu_drive_opts, qdict, &local_err);
     if (!opts) {
-        qerror_report_err(local_err);
-        error_free(local_err);
-        return -1;
+        error_propagate(errp, local_err);
+        return;
     }
     qemu_opt_set(opts, "if", "none", &error_abort);
     mc = MACHINE_GET_CLASS(current_machine);
     dinfo = drive_new(opts, mc->block_default_type);
     if (!dinfo) {
-        /*
-         * drive_new() reports some errors with qerror_report_err(),
-         * and some with error_report().  The latter vanish without
-         * trace in monitor_vprintf().  See also the rather optimistic
-         * upstream commit 74ee59a.  Emit a generic error here.  If a
-         * prior error from qerror_report_err() is pending, it'll get
-         * ignored.
-         */
-        qerror_report(QERR_DEVICE_INIT_FAILED,
-                      qemu_opts_id(opts));
+        error_setg(errp, QERR_DEVICE_INIT_FAILED, qemu_opts_id(opts));
         qemu_opts_del(opts);
-        return -1;
+        return;
     }
 
-    return 0;
+    return;
+}
+
+void hmp_simple_drive_add(Monitor *mon, const QDict *qdict)
+{
+    Error *err = NULL;
+
+    qmp_simple_drive_add((QDict *)qdict, NULL, &err);
+    if (err) {
+        error_report_err(err);
+    }
 }

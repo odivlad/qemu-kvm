@@ -20,12 +20,9 @@
 #define __TRICORE_CPU_H__
 
 #include "tricore-defs.h"
-#include "config.h"
 #include "qemu-common.h"
 #include "exec/cpu-defs.h"
 #include "fpu/softfloat.h"
-
-#define ELF_MACHINE     EM_TRICORE
 
 #define CPUArchState struct CPUTriCoreState
 
@@ -186,8 +183,7 @@ struct CPUTriCoreState {
     uint32_t M2CNT;
     uint32_t M3CNT;
     /* Floating Point Registers */
-    /* XXX: */
-
+    float_status fp_status;
     /* QEMU */
     int error_code;
     uint32_t hflags;    /* CPU State */
@@ -220,6 +216,7 @@ struct CPUTriCoreState {
 #define MASK_PSW_GW  0x00000100
 #define MASK_PSW_CDE 0x00000080
 #define MASK_PSW_CDC 0x0000007f
+#define MASK_PSW_FPU_RM 0x3000000
 
 #define MASK_SYSCON_PRO_TEN 0x2
 #define MASK_SYSCON_FCD_SF  0x1
@@ -254,6 +251,7 @@ enum tricore_features {
     TRICORE_FEATURE_13,
     TRICORE_FEATURE_131,
     TRICORE_FEATURE_16,
+    TRICORE_FEATURE_161,
 };
 
 static inline int tricore_feature(CPUTriCoreState *env, int feature)
@@ -272,6 +270,7 @@ enum {
     TRAPC_ASSERT   = 5,
     TRAPC_SYSCALL  = 6,
     TRAPC_NMI      = 7,
+    TRAPC_IRQ      = 8
 };
 
 /* Class 0 TIN */
@@ -340,16 +339,17 @@ enum {
 uint32_t psw_read(CPUTriCoreState *env);
 void psw_write(CPUTriCoreState *env, uint32_t val);
 
+void fpu_set_state(CPUTriCoreState *env);
+
 #include "cpu-qom.h"
 #define MMU_USER_IDX 2
 
 void tricore_cpu_list(FILE *f, fprintf_function cpu_fprintf);
 
-#define cpu_exec cpu_tricore_exec
 #define cpu_signal_handler cpu_tricore_signal_handler
 #define cpu_list tricore_cpu_list
 
-static inline int cpu_mmu_index(CPUTriCoreState *env)
+static inline int cpu_mmu_index(CPUTriCoreState *env, bool ifetch)
 {
     return 0;
 }
@@ -371,7 +371,6 @@ enum {
 };
 
 void cpu_state_reset(CPUTriCoreState *s);
-int cpu_tricore_exec(CPUTriCoreState *s);
 void tricore_tcg_init(void);
 int cpu_tricore_signal_handler(int host_signum, void *pinfo, void *puc);
 
@@ -394,10 +393,5 @@ int cpu_tricore_handle_mmu_fault(CPUState *cpu, target_ulong address,
 #define cpu_handle_mmu_fault cpu_tricore_handle_mmu_fault
 
 #include "exec/exec-all.h"
-
-static inline void cpu_pc_from_tb(CPUTriCoreState *env, TranslationBlock *tb)
-{
-    env->PC = tb->pc;
-}
 
 #endif /*__TRICORE_CPU_H__ */

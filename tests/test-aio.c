@@ -10,9 +10,11 @@
  * See the COPYING.LIB file in the top-level directory.
  */
 
+#include "qemu/osdep.h"
 #include <glib.h>
 #include "qemu-common.h"
 #include "block/aio.h"
+#include "qapi/error.h"
 #include "qemu/timer.h"
 #include "qemu/sockets.h"
 #include "qemu/error-report.h"
@@ -98,14 +100,6 @@ static void event_ready_cb(EventNotifier *e)
 
 /* Tests using aio_*.  */
 
-static void test_notify(void)
-{
-    g_assert(!aio_poll(ctx, false));
-    aio_notify(ctx);
-    g_assert(!aio_poll(ctx, true));
-    g_assert(!aio_poll(ctx, false));
-}
-
 typedef struct {
     QemuMutex start_lock;
     bool thread_acquired;
@@ -130,7 +124,7 @@ static void *test_acquire_thread(void *opaque)
 static void set_event_notifier(AioContext *ctx, EventNotifier *notifier,
                                EventNotifierHandler *handler)
 {
-    aio_set_event_notifier(ctx, notifier, AIO_CLIENT_UNSPECIFIED, handler);
+    aio_set_event_notifier(ctx, notifier, false, handler);
 }
 
 static void dummy_notifier_read(EventNotifier *unused)
@@ -383,6 +377,30 @@ static void test_flush_event_notifier(void)
     event_notifier_cleanup(&data.e);
 }
 
+static void test_aio_external_client(void)
+{
+    int i, j;
+
+    for (i = 1; i < 3; i++) {
+        EventNotifierTestData data = { .n = 0, .active = 10, .auto_set = true };
+        event_notifier_init(&data.e, false);
+        aio_set_event_notifier(ctx, &data.e, true, event_ready_cb);
+        event_notifier_set(&data.e);
+        for (j = 0; j < i; j++) {
+            aio_disable_external(ctx);
+        }
+        for (j = 0; j < i; j++) {
+            assert(!aio_poll(ctx, false));
+            assert(event_notifier_test_and_clear(&data.e));
+            event_notifier_set(&data.e);
+            aio_enable_external(ctx);
+        }
+        assert(aio_poll(ctx, false));
+        set_event_notifier(ctx, &data.e, NULL);
+        event_notifier_cleanup(&data.e);
+    }
+}
+
 static void test_wait_event_notifier_noflush(void)
 {
     EventNotifierTestData data = { .n = 0 };
@@ -500,14 +518,6 @@ static void test_timer_schedule(void)
  *   non-blocking loop like "while (g_main_context_iteration(NULL, false)"
  *   works well, and that's what I am using.
  */
-
-static void test_source_notify(void)
-{
-    while (g_main_context_iteration(NULL, false));
-    aio_notify(ctx);
-    g_assert(g_main_context_iteration(NULL, true));
-    g_assert(!g_main_context_iteration(NULL, false));
-}
 
 static void test_source_flush(void)
 {
@@ -829,9 +839,7 @@ int main(int argc, char **argv)
 
     ctx = aio_context_new(&local_error);
     if (!ctx) {
-        error_report("Failed to create AIO Context: '%s'",
-                     error_get_pretty(local_error));
-        error_free(local_error);
+        error_reportf_err(local_error, "Failed to create AIO Context: ");
         exit(1);
     }
     src = aio_get_g_source(ctx);
@@ -841,7 +849,6 @@ int main(int argc, char **argv)
     while (g_main_context_iteration(NULL, false));
 
     g_test_init(&argc, &argv, NULL);
-    g_test_add_func("/aio/notify",                  test_notify);
     g_test_add_func("/aio/acquire",                 test_acquire);
     g_test_add_func("/aio/bh/schedule",             test_bh_schedule);
     g_test_add_func("/aio/bh/schedule10",           test_bh_schedule10);
@@ -854,9 +861,9 @@ int main(int argc, char **argv)
     g_test_add_func("/aio/event/wait",              test_wait_event_notifier);
     g_test_add_func("/aio/event/wait/no-flush-cb",  test_wait_event_notifier_noflush);
     g_test_add_func("/aio/event/flush",             test_flush_event_notifier);
+    g_test_add_func("/aio/external-client",         test_aio_external_client);
     g_test_add_func("/aio/timer/schedule",          test_timer_schedule);
 
-    g_test_add_func("/aio-gsource/notify",                  test_source_notify);
     g_test_add_func("/aio-gsource/flush",                   test_source_flush);
     g_test_add_func("/aio-gsource/bh/schedule",             test_source_bh_schedule);
     g_test_add_func("/aio-gsource/bh/schedule10",           test_source_bh_schedule10);

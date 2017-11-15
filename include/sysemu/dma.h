@@ -10,7 +10,6 @@
 #ifndef DMA_H
 #define DMA_H
 
-#include <stdio.h>
 #include "exec/memory.h"
 #include "exec/address-spaces.h"
 #include "hw/hw.h"
@@ -198,14 +197,15 @@ void qemu_sglist_add(QEMUSGList *qsg, dma_addr_t base, dma_addr_t len);
 void qemu_sglist_destroy(QEMUSGList *qsg);
 #endif
 
-typedef BlockAIOCB *DMAIOFunc(BlockBackend *blk, int64_t sector_num,
+typedef BlockAIOCB *DMAIOFunc(int64_t sector_num,
                               QEMUIOVector *iov, int nb_sectors,
-                              BlockCompletionFunc *cb, void *opaque);
+                              BlockCompletionFunc *cb, void *cb_opaque,
+                              void *opaque);
 
-BlockAIOCB *dma_blk_io(BlockBackend *blk,
+BlockAIOCB *dma_blk_io(AioContext *ctx,
                        QEMUSGList *sg, uint64_t sector_num,
-                       DMAIOFunc *io_func, BlockCompletionFunc *cb,
-                       void *opaque, DMADirection dir);
+                       DMAIOFunc *io_func, void *io_func_opaque,
+                       BlockCompletionFunc *cb, void *opaque, DMADirection dir);
 BlockAIOCB *dma_blk_read(BlockBackend *blk,
                          QEMUSGList *sg, uint64_t sector,
                          BlockCompletionFunc *cb, void *opaque);

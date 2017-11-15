@@ -25,10 +25,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#include "qemu/osdep.h"
 #include "hw/hw.h"
 #include "hw/usb.h"
 #include "hw/usb/uhci-regs.h"
 #include "hw/pci/pci.h"
+#include "qapi/error.h"
 #include "qemu/timer.h"
 #include "qemu/iov.h"
 #include "sysemu/dma.h"
@@ -155,6 +157,9 @@ bool ich9_uhci123_irqpin_override;
 static void uhci_async_cancel(UHCIAsync *async);
 static void uhci_queue_fill(UHCIQueue *q, UHCI_TD *td);
 static void uhci_resume(void *opaque);
+
+#define TYPE_UHCI "pci-uhci-usb"
+#define UHCI(obj) OBJECT_CHECK(UHCIState, (obj), TYPE_UHCI)
 
 static inline int32_t uhci_queue_token(UHCI_TD *td)
 {
@@ -353,7 +358,7 @@ static void uhci_update_irq(UHCIState *s)
 static void uhci_reset(DeviceState *dev)
 {
     PCIDevice *d = PCI_DEVICE(dev);
-    UHCIState *s = DO_UPCAST(UHCIState, dev, d);
+    UHCIState *s = UHCI(d);
     uint8_t *pci_conf;
     int i;
     UHCIPort *port;
@@ -365,7 +370,7 @@ static void uhci_reset(DeviceState *dev)
     pci_conf[0x6a] = 0x01; /* usb clock */
     pci_conf[0x6b] = 0x00;
     s->cmd = 0;
-    s->status = 0;
+    s->status = UHCI_STS_HCHALTED;
     s->status2 = 0;
     s->intr = 0;
     s->fl_base_addr = 0;
@@ -400,7 +405,7 @@ static int uhci_post_load(void *opaque, int version_id)
 
     if (version_id < 2) {
         s->expire_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-            (get_ticks_per_sec() / FRAME_TIMER_FREQ);
+            (NANOSECONDS_PER_SECOND / FRAME_TIMER_FREQ);
     }
     return 0;
 }
@@ -442,7 +447,7 @@ static void uhci_port_write(void *opaque, hwaddr addr,
             /* start frame processing */
             trace_usb_uhci_schedule_start();
             s->expire_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-                (get_ticks_per_sec() / FRAME_TIMER_FREQ);
+                (NANOSECONDS_PER_SECOND / FRAME_TIMER_FREQ);
             timer_mod(s->frame_timer, s->expire_time);
             s->status &= ~UHCI_STS_HCHALTED;
         } else if (!(val & UHCI_CMD_RS)) {
@@ -771,8 +776,9 @@ static int uhci_handle_td(UHCIState *s, UHCIQueue *q, uint32_t qh_addr,
     bool spd;
     bool queuing = (q != NULL);
     uint8_t pid = td->token & 0xff;
-    UHCIAsync *async = uhci_async_find_td(s, td_addr);
+    UHCIAsync *async;
 
+    async = uhci_async_find_td(s, td_addr);
     if (async) {
         if (uhci_queue_verify(async->queue, qh_addr, td, td_addr, queuing)) {
             assert(q == NULL || q == async->queue);
@@ -809,6 +815,19 @@ static int uhci_handle_td(UHCIState *s, UHCIQueue *q, uint32_t qh_addr,
                 *int_mask |= 0x01;
         }
         return TD_RESULT_NEXT_QH;
+    }
+
+    switch (pid) {
+    case USB_TOKEN_OUT:
+    case USB_TOKEN_SETUP:
+    case USB_TOKEN_IN:
+        break;
+    default:
+        /* invalid pid : frame interrupted */
+        s->status |= UHCI_STS_HCPERR;
+        s->cmd &= ~UHCI_CMD_RS;
+        uhci_update_irq(s);
+        return TD_RESULT_STOP_FRAME;
     }
 
     if (async) {
@@ -878,11 +897,7 @@ static int uhci_handle_td(UHCIState *s, UHCIQueue *q, uint32_t qh_addr,
         break;
 
     default:
-        /* invalid pid : frame interrupted */
-        uhci_async_free(async);
-        s->status |= UHCI_STS_HCPERR;
-        uhci_update_irq(s);
-        return TD_RESULT_STOP_FRAME;
+        abort(); /* Never to execute */
     }
 
     if (async->packet.status == USB_RET_ASYNC) {
@@ -1118,7 +1133,7 @@ static void uhci_frame_timer(void *opaque)
     UHCIState *s = opaque;
     uint64_t t_now, t_last_run;
     int i, frames;
-    const uint64_t frame_t = get_ticks_per_sec() / FRAME_TIMER_FREQ;
+    const uint64_t frame_t = NANOSECONDS_PER_SECOND / FRAME_TIMER_FREQ;
 
     s->completions_only = false;
     qemu_bh_cancel(s->bh);
@@ -1198,7 +1213,7 @@ static void usb_uhci_common_realize(PCIDevice *dev, Error **errp)
     Error *err = NULL;
     PCIDeviceClass *pc = PCI_DEVICE_GET_CLASS(dev);
     UHCIPCIDeviceClass *u = container_of(pc, UHCIPCIDeviceClass, parent_class);
-    UHCIState *s = DO_UPCAST(UHCIState, dev, dev);
+    UHCIState *s = UHCI(dev);
     uint8_t *pci_conf = s->dev.config;
     int i;
     int irq_pin;
@@ -1254,7 +1269,7 @@ static void usb_uhci_common_realize(PCIDevice *dev, Error **errp)
 
 static void usb_uhci_vt82c686b_realize(PCIDevice *dev, Error **errp)
 {
-    UHCIState *s = DO_UPCAST(UHCIState, dev, dev);
+    UHCIState *s = UHCI(dev);
     uint8_t *pci_conf = s->dev.config;
 
     /* USB misc control 1/2 */
@@ -1269,7 +1284,7 @@ static void usb_uhci_vt82c686b_realize(PCIDevice *dev, Error **errp)
 
 static void usb_uhci_exit(PCIDevice *dev)
 {
-    UHCIState *s = DO_UPCAST(UHCIState, dev, dev);
+    UHCIState *s = UHCI(dev);
 
     trace_usb_uhci_exit();
 
@@ -1307,6 +1322,26 @@ static void uhci_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+
+    k->class_id  = PCI_CLASS_SERIAL_USB;
+    dc->vmsd = &vmstate_uhci;
+    dc->reset = uhci_reset;
+    set_bit(DEVICE_CATEGORY_USB, dc->categories);
+}
+
+static const TypeInfo uhci_pci_type_info = {
+    .name = TYPE_UHCI,
+    .parent = TYPE_PCI_DEVICE,
+    .instance_size = sizeof(UHCIState),
+    .class_size    = sizeof(UHCIPCIDeviceClass),
+    .abstract = true,
+    .class_init = uhci_class_init,
+};
+
+static void uhci_data_class_init(ObjectClass *klass, void *data)
+{
+    PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+    DeviceClass *dc = DEVICE_CLASS(klass);
     UHCIPCIDeviceClass *u = container_of(k, UHCIPCIDeviceClass, parent_class);
     UHCIInfo *info = data;
 
@@ -1315,9 +1350,6 @@ static void uhci_class_init(ObjectClass *klass, void *data)
     k->vendor_id = info->vendor_id;
     k->device_id = info->device_id;
     k->revision  = info->revision;
-    k->class_id  = PCI_CLASS_SERIAL_USB;
-    dc->vmsd = &vmstate_uhci;
-    dc->reset = uhci_reset;
     if (!info->unplug) {
         /* uhci controllers in companion setups can't be hotplugged */
         dc->hotpluggable = false;
@@ -1325,7 +1357,6 @@ static void uhci_class_init(ObjectClass *klass, void *data)
     } else {
         dc->props = uhci_properties_standalone;
     }
-    set_bit(DEVICE_CATEGORY_USB, dc->categories);
     u->info = *info;
 }
 
@@ -1400,12 +1431,12 @@ static UHCIInfo uhci_info[] = {
 static void uhci_register_types(void)
 {
     TypeInfo uhci_type_info = {
-        .parent        = TYPE_PCI_DEVICE,
-        .instance_size = sizeof(UHCIState),
-        .class_size    = sizeof(UHCIPCIDeviceClass),
-        .class_init    = uhci_class_init,
+        .parent        = TYPE_UHCI,
+        .class_init    = uhci_data_class_init,
     };
     int i;
+
+    type_register_static(&uhci_pci_type_info);
 
     for (i = 0; i < ARRAY_SIZE(uhci_info); i++) {
         uhci_type_info.name = uhci_info[i].name;

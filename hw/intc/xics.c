@@ -25,6 +25,10 @@
  *
  */
 
+#include "qemu/osdep.h"
+#include "qapi/error.h"
+#include "qemu-common.h"
+#include "cpu.h"
 #include "hw/hw.h"
 #include "trace.h"
 #include "qemu/timer.h"
@@ -44,6 +48,18 @@ static int get_cpu_index_by_dt_id(int cpu_dt_id)
     return -1;
 }
 
+void xics_cpu_destroy(XICSState *icp, PowerPCCPU *cpu)
+{
+    CPUState *cs = CPU(cpu);
+    ICPState *ss = &icp->ss[cs->cpu_index];
+
+    assert(cs->cpu_index < icp->nr_servers);
+    assert(cs == ss->cs);
+
+    ss->output = NULL;
+    ss->cs = NULL;
+}
+
 void xics_cpu_setup(XICSState *icp, PowerPCCPU *cpu)
 {
     CPUState *cs = CPU(cpu);
@@ -52,6 +68,8 @@ void xics_cpu_setup(XICSState *icp, PowerPCCPU *cpu)
     XICSStateClass *info = XICS_COMMON_GET_CLASS(icp);
 
     assert(cs->cpu_index < icp->nr_servers);
+
+    ss->cs = cs;
 
     if (info->cpu_setup) {
         info->cpu_setup(icp, cpu);
@@ -88,24 +106,24 @@ static void xics_common_reset(DeviceState *d)
     device_reset(DEVICE(icp->ics));
 }
 
-static void xics_prop_get_nr_irqs(Object *obj, Visitor *v,
-                                  void *opaque, const char *name, Error **errp)
+static void xics_prop_get_nr_irqs(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
 {
     XICSState *icp = XICS_COMMON(obj);
     int64_t value = icp->nr_irqs;
 
-    visit_type_int(v, &value, name, errp);
+    visit_type_int(v, name, &value, errp);
 }
 
-static void xics_prop_set_nr_irqs(Object *obj, Visitor *v,
-                                  void *opaque, const char *name, Error **errp)
+static void xics_prop_set_nr_irqs(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
 {
     XICSState *icp = XICS_COMMON(obj);
     XICSStateClass *info = XICS_COMMON_GET_CLASS(icp);
     Error *error = NULL;
     int64_t value;
 
-    visit_type_int(v, &value, name, &error);
+    visit_type_int(v, name, &value, &error);
     if (error) {
         error_propagate(errp, error);
         return;
@@ -122,17 +140,17 @@ static void xics_prop_set_nr_irqs(Object *obj, Visitor *v,
 }
 
 static void xics_prop_get_nr_servers(Object *obj, Visitor *v,
-                                     void *opaque, const char *name,
+                                     const char *name, void *opaque,
                                      Error **errp)
 {
     XICSState *icp = XICS_COMMON(obj);
     int64_t value = icp->nr_servers;
 
-    visit_type_int(v, &value, name, errp);
+    visit_type_int(v, name, &value, errp);
 }
 
 static void xics_prop_set_nr_servers(Object *obj, Visitor *v,
-                                     void *opaque, const char *name,
+                                     const char *name, void *opaque,
                                      Error **errp)
 {
     XICSState *icp = XICS_COMMON(obj);
@@ -140,7 +158,7 @@ static void xics_prop_set_nr_servers(Object *obj, Visitor *v,
     Error *error = NULL;
     int64_t value;
 
-    visit_type_int(v, &value, name, &error);
+    visit_type_int(v, name, &value, &error);
     if (error) {
         error_propagate(errp, error);
         return;
@@ -711,7 +729,7 @@ static int ics_find_free_block(ICSState *ics, int num, int alignnum)
     return -1;
 }
 
-int xics_alloc(XICSState *icp, int src, int irq_hint, bool lsi)
+int xics_alloc(XICSState *icp, int src, int irq_hint, bool lsi, Error **errp)
 {
     ICSState *ics = &icp->ics[src];
     int irq;
@@ -719,14 +737,14 @@ int xics_alloc(XICSState *icp, int src, int irq_hint, bool lsi)
     if (irq_hint) {
         assert(src == xics_find_source(icp, irq_hint));
         if (!ICS_IRQ_FREE(ics, irq_hint - ics->offset)) {
-            trace_xics_alloc_failed_hint(src, irq_hint);
+            error_setg(errp, "can't allocate IRQ %d: already in use", irq_hint);
             return -1;
         }
         irq = irq_hint;
     } else {
         irq = ics_find_free_block(ics, 1, 1);
         if (irq < 0) {
-            trace_xics_alloc_failed_no_left(src);
+            error_setg(errp, "can't allocate IRQ: no IRQ left");
             return -1;
         }
         irq += ics->offset;
@@ -739,10 +757,11 @@ int xics_alloc(XICSState *icp, int src, int irq_hint, bool lsi)
 }
 
 /*
- * Allocate block of consequtive IRQs, returns a number of the first.
+ * Allocate block of consecutive IRQs, and return the number of the first IRQ in the block.
  * If align==true, aligns the first IRQ number to num.
  */
-int xics_alloc_block(XICSState *icp, int src, int num, bool lsi, bool align)
+int xics_alloc_block(XICSState *icp, int src, int num, bool lsi, bool align,
+                     Error **errp)
 {
     int i, first = -1;
     ICSState *ics = &icp->ics[src];
@@ -761,6 +780,10 @@ int xics_alloc_block(XICSState *icp, int src, int num, bool lsi, bool align)
         first = ics_find_free_block(ics, num, num);
     } else {
         first = ics_find_free_block(ics, num, 1);
+    }
+    if (first < 0) {
+        error_setg(errp, "can't find a free %d-IRQ block", num);
+        return -1;
     }
 
     if (first >= 0) {
@@ -848,7 +871,7 @@ static target_ulong h_xirr_x(PowerPCCPU *cpu, sPAPRMachineState *spapr,
     uint32_t xirr = icp_accept(ss);
 
     args[0] = xirr;
-    args[1] = cpu_get_real_ticks();
+    args[1] = cpu_get_host_ticks();
     return H_SUCCESS;
 }
 

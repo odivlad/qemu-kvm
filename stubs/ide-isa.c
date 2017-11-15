@@ -1,3 +1,4 @@
+#include <qemu/osdep.h>
 #include <hw/ide.h>
 #include <stdlib.h>
 

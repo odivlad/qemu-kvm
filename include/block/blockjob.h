@@ -50,6 +50,47 @@ typedef struct BlockJobDriver {
      * manually.
      */
     void (*complete)(BlockJob *job, Error **errp);
+
+    /**
+     * If the callback is not NULL, it will be invoked when all the jobs
+     * belonging to the same transaction complete; or upon this job's
+     * completion if it is not in a transaction. Skipped if NULL.
+     *
+     * All jobs will complete with a call to either .commit() or .abort() but
+     * never both.
+     */
+    void (*commit)(BlockJob *job);
+
+    /**
+     * If the callback is not NULL, it will be invoked when any job in the
+     * same transaction fails; or upon this job's failure (due to error or
+     * cancellation) if it is not in a transaction. Skipped if NULL.
+     *
+     * All jobs will complete with a call to either .commit() or .abort() but
+     * never both.
+     */
+    void (*abort)(BlockJob *job);
+
+    /**
+     * If the callback is not NULL, it will be invoked when the job transitions
+     * into the paused state.  Paused jobs must not perform any asynchronous
+     * I/O or event loop activity.  This callback is used to quiesce jobs.
+     */
+    void coroutine_fn (*pause)(BlockJob *job);
+
+    /**
+     * If the callback is not NULL, it will be invoked when the job transitions
+     * out of the paused state.  Any asynchronous I/O or event loop activity
+     * should be restarted from this callback.
+     */
+    void coroutine_fn (*resume)(BlockJob *job);
+
+    /*
+     * If the callback is not NULL, it will be invoked before the job is
+     * resumed in a new AioContext.  This is the place to move any resources
+     * besides job->blk to the new AioContext.
+     */
+    void (*attached_aio_context)(BlockJob *job, AioContext *new_context);
 } BlockJobDriver;
 
 /**
@@ -63,6 +104,14 @@ struct BlockJob {
 
     /** The block device on which the job is operating.  */
     BlockDriverState *bs;
+
+    /**
+     * The ID of the block job. Currently the BlockBackend name of the BDS
+     * owning the job at the time when the job is started.
+     *
+     * TODO Decouple block job IDs from BlockBackend names
+     */
+    char *id;
 
     /**
      * The coroutine that executes the job.  If not NULL, it is
@@ -91,16 +140,27 @@ struct BlockJob {
     bool user_paused;
 
     /**
-     * Set to false by the job while it is in a quiescent state, where
-     * no I/O is pending and the job has yielded on any condition
-     * that is not detected by #aio_poll, such as a timer.
+     * Set to false by the job while the coroutine has yielded and may be
+     * re-entered by block_job_enter().  There may still be I/O or event loop
+     * activity pending.
      */
     bool busy;
+
+    /**
+     * Set to true by the job while it is in a quiescent state, where
+     * no I/O or event loop activity is pending.
+     */
+    bool paused;
 
     /**
      * Set to true when the job is ready to be completed.
      */
     bool ready;
+
+    /**
+     * Set to true when the job has deferred work to the main loop.
+     */
+    bool deferred_to_main_loop;
 
     /** Status that is published by the query-block-jobs QMP API */
     BlockDeviceIoStatus iostatus;
@@ -122,6 +182,21 @@ struct BlockJob {
 
     /** The opaque value that is passed to the completion function.  */
     void *opaque;
+
+    /** Reference count of the block job */
+    int refcnt;
+
+    /* True if this job has reported completion by calling block_job_completed.
+     */
+    bool completed;
+
+    /* ret code passed to block_job_completed.
+     */
+    int ret;
+
+    /** Non-NULL if this job is part of a transaction */
+    BlockJobTxn *txn;
+    QLIST_ENTRY(BlockJob) txn_list;
 };
 
 /**
@@ -164,6 +239,23 @@ void block_job_sleep_ns(BlockJob *job, QEMUClockType type, int64_t ns);
  * Yield the block job coroutine.
  */
 void block_job_yield(BlockJob *job);
+
+/**
+ * block_job_ref:
+ * @bs: The block device.
+ *
+ * Grab a reference to the block job. Should be paired with block_job_unref.
+ */
+void block_job_ref(BlockJob *job);
+
+/**
+ * block_job_unref:
+ * @bs: The block device.
+ *
+ * Release reference to the block job and release resources if it is the last
+ * reference.
+ */
+void block_job_unref(BlockJob *job);
 
 /**
  * block_job_completed:
@@ -220,6 +312,15 @@ bool block_job_is_cancelled(BlockJob *job);
 BlockJobInfo *block_job_query(BlockJob *job);
 
 /**
+ * block_job_pause_point:
+ * @job: The job that is ready to pause.
+ *
+ * Pause now if block_job_pause() has been called.  Block jobs that perform
+ * lots of I/O must call this between requests so that the job can be paused.
+ */
+void coroutine_fn block_job_pause_point(BlockJob *job);
+
+/**
  * block_job_pause:
  * @job: The job to be paused.
  *
@@ -267,15 +368,6 @@ void block_job_event_completed(BlockJob *job, const char *msg);
  * Send a BLOCK_JOB_READY event for the specified job.
  */
 void block_job_event_ready(BlockJob *job);
-
-/**
- * block_job_is_paused:
- * @job: The job being queried.
- *
- * Returns whether the job is currently paused, or will pause
- * as soon as it reaches a sleeping point.
- */
-bool block_job_is_paused(BlockJob *job);
 
 /**
  * block_job_cancel_sync:
@@ -347,5 +439,40 @@ typedef void BlockJobDeferToMainLoopFn(BlockJob *job, void *opaque);
 void block_job_defer_to_main_loop(BlockJob *job,
                                   BlockJobDeferToMainLoopFn *fn,
                                   void *opaque);
+
+/**
+ * block_job_txn_new:
+ *
+ * Allocate and return a new block job transaction.  Jobs can be added to the
+ * transaction using block_job_txn_add_job().
+ *
+ * The transaction is automatically freed when the last job completes or is
+ * cancelled.
+ *
+ * All jobs in the transaction either complete successfully or fail/cancel as a
+ * group.  Jobs wait for each other before completing.  Cancelling one job
+ * cancels all jobs in the transaction.
+ */
+BlockJobTxn *block_job_txn_new(void);
+
+/**
+ * block_job_txn_unref:
+ *
+ * Release a reference that was previously acquired with block_job_txn_add_job
+ * or block_job_txn_new. If it's the last reference to the object, it will be
+ * freed.
+ */
+void block_job_txn_unref(BlockJobTxn *txn);
+
+/**
+ * block_job_txn_add_job:
+ * @txn: The transaction (may be NULL)
+ * @job: Job to add to the transaction
+ *
+ * Add @job to the transaction.  The @job must not already be in a transaction.
+ * The caller must call either block_job_txn_unref() or block_job_completed()
+ * to release the reference that is automatically grabbed here.
+ */
+void block_job_txn_add_job(BlockJobTxn *txn, BlockJob *job);
 
 #endif

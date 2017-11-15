@@ -23,6 +23,8 @@
  * THE SOFTWARE.
  */
 
+#include "qemu/osdep.h"
+#include "qapi/error.h"
 #include "qemu-common.h"
 #include "qemu/error-report.h"
 #include "ui/console.h"
@@ -106,6 +108,7 @@ static void cg3_update_display(void *opaque)
     pix = memory_region_get_ram_ptr(&s->vram_mem);
     data = (uint32_t *)surface_data(surface);
 
+    memory_region_sync_dirty_bitmap(&s->vram_mem);
     for (y = 0; y < height; y++) {
         int update = s->full_update;
 
@@ -302,6 +305,7 @@ static void cg3_realizefn(DeviceState *dev, Error **errp)
     if (fcode_filename) {
         ret = load_image_targphys(fcode_filename, s->prom_addr,
                                   FCODE_MAX_ROM_SIZE);
+        g_free(fcode_filename);
         if (ret < 0 || ret > FCODE_MAX_ROM_SIZE) {
             error_report("cg3: could not load prom '%s'", CG3_ROM_FILE);
         }
@@ -309,6 +313,7 @@ static void cg3_realizefn(DeviceState *dev, Error **errp)
 
     memory_region_init_ram(&s->vram_mem, NULL, "cg3.vram", s->vram_size,
                            &error_fatal);
+    memory_region_set_log(&s->vram_mem, true, DIRTY_MEMORY_VGA);
     vmstate_register_ram_global(&s->vram_mem);
     sysbus_init_mmio(sbd, &s->vram_mem);
 

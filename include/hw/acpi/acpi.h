@@ -19,12 +19,11 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "qapi/error.h"
-#include "qemu/typedefs.h"
 #include "qemu/notify.h"
 #include "qemu/option.h"
 #include "exec/memory.h"
 #include "hw/irq.h"
+#include "hw/acpi/acpi_dev_interface.h"
 
 /*
  * current device naming scheme supports up to 256 memory devices
@@ -91,13 +90,6 @@
 /* PM2_CNT */
 #define ACPI_BITMASK_ARB_DISABLE                0x0001
 
-/* These values are part of guest ABI, and can not be changed */
-typedef enum {
-    ACPI_PCI_HOTPLUG_STATUS = 2,
-    ACPI_CPU_HOTPLUG_STATUS = 4,
-    ACPI_MEMORY_HOTPLUG_STATUS = 8,
-} AcpiGPEStatusBits;
-
 /* structs */
 typedef struct ACPIPMTimer ACPIPMTimer;
 typedef struct ACPIPM1EVT ACPIPM1EVT;
@@ -156,7 +148,7 @@ void acpi_pm_tmr_reset(ACPIREGS *ar);
 static inline int64_t acpi_pm_tmr_get_clock(void)
 {
     return muldiv64(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL), PM_TIMER_FREQUENCY,
-                    get_ticks_per_sec());
+                    NANOSECONDS_PER_SECOND);
 }
 
 /* PM1a_EVT: piix and ich9 don't implement PM1b. */
@@ -181,7 +173,7 @@ void acpi_gpe_ioport_writeb(ACPIREGS *ar, uint32_t addr, uint32_t val);
 uint32_t acpi_gpe_ioport_readb(ACPIREGS *ar, uint32_t addr);
 
 void acpi_send_gpe_event(ACPIREGS *ar, qemu_irq irq,
-                         AcpiGPEStatusBits status);
+                         AcpiEventStatusBits status);
 
 void acpi_update_sci(ACPIREGS *acpi_regs, qemu_irq irq);
 
@@ -195,5 +187,12 @@ uint8_t *acpi_table_next(uint8_t *current);
 unsigned acpi_table_len(void *current);
 void acpi_table_add(const QemuOpts *opts, Error **errp);
 void acpi_table_add_builtin(const QemuOpts *opts, Error **errp);
+
+typedef struct AcpiSlicOem AcpiSlicOem;
+struct AcpiSlicOem {
+  char *id;
+  char *table_id;
+};
+int acpi_get_slic_oem(AcpiSlicOem *oem);
 
 #endif /* !QEMU_HW_ACPI_H */

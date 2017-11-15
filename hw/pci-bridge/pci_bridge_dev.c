@@ -19,6 +19,8 @@
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "qemu/osdep.h"
+#include "qapi/error.h"
 #include "hw/pci/pci_bridge.h"
 #include "hw/pci/pci_ids.h"
 #include "hw/pci/msi.h"
@@ -28,7 +30,8 @@
 #include "hw/pci/pci_bus.h"
 #include "hw/hotplug.h"
 
-#define TYPE_PCI_BRIDGE_DEV "pci-bridge"
+#define TYPE_PCI_BRIDGE_DEV      "pci-bridge"
+#define TYPE_PCI_BRIDGE_SEAT_DEV "pci-bridge-seat"
 #define PCI_BRIDGE_DEV(obj) \
     OBJECT_CHECK(PCIBridgeDev, (obj), TYPE_PCI_BRIDGE_DEV)
 
@@ -51,10 +54,8 @@ static int pci_bridge_dev_initfn(PCIDevice *dev)
     PCIBridgeDev *bridge_dev = PCI_BRIDGE_DEV(dev);
     int err;
 
-    err = pci_bridge_initfn(dev, TYPE_PCI_BUS);
-    if (err) {
-        goto bridge_error;
-    }
+    pci_bridge_initfn(dev, TYPE_PCI_BUS);
+
     if (bridge_dev->flags & (1 << PCI_BRIDGE_DEV_F_SHPC_REQ)) {
         dev->config[PCI_INTERRUPT_PIN] = 0x1;
         memory_region_init(&bridge_dev->bar, OBJECT(dev), "shpc-bar",
@@ -72,7 +73,7 @@ static int pci_bridge_dev_initfn(PCIDevice *dev)
         goto slotid_error;
     }
     if ((bridge_dev->flags & (1 << PCI_BRIDGE_DEV_F_MSI_REQ)) &&
-        msi_supported) {
+        msi_nonbroken) {
         err = msi_init(dev, 0, 1, true, true);
         if (err < 0) {
             goto msi_error;
@@ -93,7 +94,7 @@ slotid_error:
     }
 shpc_error:
     pci_bridge_exitfn(dev);
-bridge_error:
+
     return err;
 }
 
@@ -226,9 +227,31 @@ static const TypeInfo pci_bridge_dev_info = {
     }
 };
 
+/*
+ * Multiseat bridge.  Same as the standard pci bridge, only with a
+ * different pci id, so we can match it easily in the guest for
+ * automagic multiseat configuration.  See docs/multiseat.txt for more.
+ */
+static void pci_bridge_dev_seat_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+
+    k->device_id = PCI_DEVICE_ID_REDHAT_BRIDGE_SEAT;
+    dc->desc = "Standard PCI Bridge (multiseat)";
+}
+
+static const TypeInfo pci_bridge_dev_seat_info = {
+    .name              = TYPE_PCI_BRIDGE_SEAT_DEV,
+    .parent            = TYPE_PCI_BRIDGE_DEV,
+    .instance_size     = sizeof(PCIBridgeDev),
+    .class_init        = pci_bridge_dev_seat_class_init,
+};
+
 static void pci_bridge_dev_register(void)
 {
     type_register_static(&pci_bridge_dev_info);
+    type_register_static(&pci_bridge_dev_seat_info);
 }
 
 type_init(pci_bridge_dev_register);

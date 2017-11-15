@@ -9,6 +9,11 @@
 #include "migration/vmstate.h"
 #include "qapi-types.h"
 
+#define MAC_FMT "%02X:%02X:%02X:%02X:%02X:%02X"
+#define MAC_ARG(x) ((uint8_t *)(x))[0], ((uint8_t *)(x))[1], \
+                   ((uint8_t *)(x))[2], ((uint8_t *)(x))[3], \
+                   ((uint8_t *)(x))[4], ((uint8_t *)(x))[5]
+
 #define MAX_QUEUE_NUM 1024
 
 /* Maximum GSO packet size (64k) plus plenty of room for
@@ -93,6 +98,7 @@ struct NetClientState {
     unsigned int queue_index;
     unsigned rxfilter_notify_enabled:1;
     int vring_enable;
+    QTAILQ_HEAD(NetFilterHead, NetFilterState) filters;
 };
 
 typedef struct NICState {
@@ -102,6 +108,7 @@ typedef struct NICState {
     bool peer_deleted;
 } NICState;
 
+char *qemu_mac_strdup_printf(const uint8_t *macaddr);
 NetClientState *qemu_find_netdev(const char *id);
 int qemu_find_net_clients_except(const char *id, NetClientState **ncs,
                                  NetClientOptionsKind type, int max);
@@ -151,11 +158,6 @@ void qemu_check_nic_model(NICInfo *nd, const char *model);
 int qemu_find_nic_model(NICInfo *nd, const char * const *models,
                         const char *default_model);
 
-ssize_t qemu_deliver_packet(NetClientState *sender,
-                            unsigned flags,
-                            const uint8_t *data,
-                            size_t size,
-                            void *opaque);
 ssize_t qemu_deliver_packet_iov(NetClientState *sender,
                             unsigned flags,
                             const struct iovec *iov,
@@ -197,7 +199,7 @@ void net_cleanup(void);
 void hmp_host_net_add(Monitor *mon, const QDict *qdict);
 void hmp_host_net_remove(Monitor *mon, const QDict *qdict);
 void netdev_add(QemuOpts *opts, Error **errp);
-int qmp_netdev_add(Monitor *mon, const QDict *qdict, QObject **ret);
+void qmp_netdev_add(QDict *qdict, QObject **ret, Error **errp);
 
 int net_hub_id_for_client(NetClientState *nc, int *id);
 NetClientState *net_hub_port_find(int hub_id);

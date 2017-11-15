@@ -21,10 +21,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#include "qemu/osdep.h"
+#include <zlib.h>
 #include "qemu-common.h"
+#include "qemu/error-report.h"
 #include "qemu/iov.h"
 #include "qemu/sockets.h"
-#include "block/coroutine.h"
+#include "qemu/coroutine.h"
 #include "migration/migration.h"
 #include "migration/qemu-file.h"
 #include "migration/qemu-file-internal.h"
@@ -40,6 +43,18 @@ int qemu_file_shutdown(QEMUFile *f)
         return -ENOSYS;
     }
     return f->ops->shut_down(f->opaque, true, true);
+}
+
+/*
+ * Result: QEMUFile* for a 'return path' for comms in the opposite direction
+ *         NULL if not available
+ */
+QEMUFile *qemu_file_get_return_path(QEMUFile *f)
+{
+    if (!f->ops->get_return_path) {
+        return NULL;
+    }
+    return f->ops->get_return_path(f->opaque);
 }
 
 bool qemu_file_mode_is_not_valid(const char *mode)
@@ -58,7 +73,7 @@ QEMUFile *qemu_fopen_ops(void *opaque, const QEMUFileOps *ops)
 {
     QEMUFile *f;
 
-    f = g_malloc0(sizeof(QEMUFile));
+    f = g_new0(QEMUFile, 1);
 
     f->opaque = opaque;
     f->ops = ops;
@@ -268,7 +283,7 @@ int qemu_fclose(QEMUFile *f)
     return ret;
 }
 
-static void add_to_iovec(QEMUFile *f, const uint8_t *buf, int size)
+static void add_to_iovec(QEMUFile *f, const uint8_t *buf, size_t size)
 {
     /* check for adjacent buffer and coalesce them */
     if (f->iovcnt > 0 && buf == f->iov[f->iovcnt - 1].iov_base +
@@ -284,7 +299,7 @@ static void add_to_iovec(QEMUFile *f, const uint8_t *buf, int size)
     }
 }
 
-void qemu_put_buffer_async(QEMUFile *f, const uint8_t *buf, int size)
+void qemu_put_buffer_async(QEMUFile *f, const uint8_t *buf, size_t size)
 {
     if (!f->ops->writev_buffer) {
         qemu_put_buffer(f, buf, size);
@@ -299,9 +314,9 @@ void qemu_put_buffer_async(QEMUFile *f, const uint8_t *buf, int size)
     add_to_iovec(f, buf, size);
 }
 
-void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, int size)
+void qemu_put_buffer(QEMUFile *f, const uint8_t *buf, size_t size)
 {
-    int l;
+    size_t l;
 
     if (f->last_error) {
         return;
@@ -354,17 +369,17 @@ void qemu_file_skip(QEMUFile *f, int size)
 }
 
 /*
- * Read 'size' bytes from file (at 'offset') into buf without moving the
- * pointer.
+ * Read 'size' bytes from file (at 'offset') without moving the
+ * pointer and set 'buf' to point to that data.
  *
  * It will return size bytes unless there was an error, in which case it will
  * return as many as it managed to read (assuming blocking fd's which
  * all current QEMUFile are)
  */
-int qemu_peek_buffer(QEMUFile *f, uint8_t *buf, int size, size_t offset)
+size_t qemu_peek_buffer(QEMUFile *f, uint8_t **buf, size_t size, size_t offset)
 {
-    int pending;
-    int index;
+    ssize_t pending;
+    size_t index;
 
     assert(!qemu_file_is_writable(f));
     assert(offset < IO_BUF_SIZE);
@@ -397,7 +412,7 @@ int qemu_peek_buffer(QEMUFile *f, uint8_t *buf, int size, size_t offset)
         size = pending;
     }
 
-    memcpy(buf, f->buf + index, size);
+    *buf = f->buf + index;
     return size;
 }
 
@@ -409,24 +424,63 @@ int qemu_peek_buffer(QEMUFile *f, uint8_t *buf, int size, size_t offset)
  * return as many as it managed to read (assuming blocking fd's which
  * all current QEMUFile are)
  */
-int qemu_get_buffer(QEMUFile *f, uint8_t *buf, int size)
+size_t qemu_get_buffer(QEMUFile *f, uint8_t *buf, size_t size)
 {
-    int pending = size;
-    int done = 0;
+    size_t pending = size;
+    size_t done = 0;
 
     while (pending > 0) {
-        int res;
+        size_t res;
+        uint8_t *src;
 
-        res = qemu_peek_buffer(f, buf, MIN(pending, IO_BUF_SIZE), 0);
+        res = qemu_peek_buffer(f, &src, MIN(pending, IO_BUF_SIZE), 0);
         if (res == 0) {
             return done;
         }
+        memcpy(buf, src, res);
         qemu_file_skip(f, res);
         buf += res;
         pending -= res;
         done += res;
     }
     return done;
+}
+
+/*
+ * Read 'size' bytes of data from the file.
+ * 'size' can be larger than the internal buffer.
+ *
+ * The data:
+ *   may be held on an internal buffer (in which case *buf is updated
+ *     to point to it) that is valid until the next qemu_file operation.
+ * OR
+ *   will be copied to the *buf that was passed in.
+ *
+ * The code tries to avoid the copy if possible.
+ *
+ * It will return size bytes unless there was an error, in which case it will
+ * return as many as it managed to read (assuming blocking fd's which
+ * all current QEMUFile are)
+ *
+ * Note: Since **buf may get changed, the caller should take care to
+ *       keep a pointer to the original buffer if it needs to deallocate it.
+ */
+size_t qemu_get_buffer_in_place(QEMUFile *f, uint8_t **buf, size_t size)
+{
+    if (size < IO_BUF_SIZE) {
+        size_t res;
+        uint8_t *src;
+
+        res = qemu_peek_buffer(f, &src, size, 0);
+
+        if (res == size) {
+            qemu_file_skip(f, res);
+            *buf = src;
+            return res;
+        }
+    }
+
+    return qemu_get_buffer(f, *buf, size);
 }
 
 /*
@@ -553,6 +607,44 @@ uint64_t qemu_get_be64(QEMUFile *f)
     return v;
 }
 
+/* compress size bytes of data start at p with specific compression
+ * level and store the compressed data to the buffer of f.
+ */
+
+ssize_t qemu_put_compression_data(QEMUFile *f, const uint8_t *p, size_t size,
+                                  int level)
+{
+    ssize_t blen = IO_BUF_SIZE - f->buf_index - sizeof(int32_t);
+
+    if (blen < compressBound(size)) {
+        return 0;
+    }
+    if (compress2(f->buf + f->buf_index + sizeof(int32_t), (uLongf *)&blen,
+                  (Bytef *)p, size, level) != Z_OK) {
+        error_report("Compress Failed!");
+        return 0;
+    }
+    qemu_put_be32(f, blen);
+    f->buf_index += blen;
+    return blen + sizeof(int32_t);
+}
+
+/* Put the data in the buffer of f_src to the buffer of f_des, and
+ * then reset the buf_index of f_src to 0.
+ */
+
+int qemu_put_qemu_file(QEMUFile *f_des, QEMUFile *f_src)
+{
+    int len = 0;
+
+    if (f_src->buf_index > 0) {
+        len = f_src->buf_index;
+        qemu_put_buffer(f_des, f_src->buf, f_src->buf_index);
+        f_src->buf_index = 0;
+    }
+    return len;
+}
+
 /*
  * Get a string whose length is determined by a single preceding byte
  * A preallocated 256 byte buffer must be passed in.
@@ -570,3 +662,17 @@ size_t qemu_get_counted_string(QEMUFile *f, char buf[256])
     return res == len ? res : 0;
 }
 
+/*
+ * Set the blocking state of the QEMUFile.
+ * Note: On some transports the OS only keeps a single blocking state for
+ *       both directions, and thus changing the blocking on the main
+ *       QEMUFile can also affect the return path.
+ */
+void qemu_file_set_blocking(QEMUFile *f, bool block)
+{
+    if (block) {
+        qemu_set_block(qemu_get_fd(f));
+    } else {
+        qemu_set_nonblock(qemu_get_fd(f));
+    }
+}

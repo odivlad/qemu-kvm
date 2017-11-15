@@ -1,9 +1,7 @@
 #ifndef QEMU_CONFIG_H
 #define QEMU_CONFIG_H
 
-#include <stdio.h>
 #include "qemu/option.h"
-#include "qapi/error.h"
 #include "qapi/qmp/qdict.h"
 
 QemuOptsList *qemu_find_opts(const char *group);
@@ -14,7 +12,6 @@ void qemu_add_opts(QemuOptsList *list);
 void qemu_add_drive_opts(QemuOptsList *list);
 int qemu_set_option(const char *str);
 int qemu_global_option(const char *str);
-void qemu_add_globals(void);
 
 void qemu_config_write(FILE *fp);
 int qemu_config_parse(FILE *fp, QemuOptsList **lists, const char *fname);

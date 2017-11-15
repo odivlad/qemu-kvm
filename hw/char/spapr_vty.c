@@ -1,3 +1,7 @@
+#include "qemu/osdep.h"
+#include "qapi/error.h"
+#include "qemu-common.h"
+#include "cpu.h"
 #include "hw/qdev.h"
 #include "sysemu/char.h"
 #include "hw/ppc/spapr.h"
@@ -193,7 +197,7 @@ VIOsPAPRDevice *spapr_vty_get_default(VIOsPAPRBus *bus)
         DeviceState *iter = kid->child;
 
         /* Only look at VTY devices */
-        if (!object_dynamic_cast(OBJECT(iter), "spapr-vty")) {
+        if (!object_dynamic_cast(OBJECT(iter), TYPE_VIO_SPAPR_VTY_DEVICE)) {
             continue;
         }
 
@@ -226,6 +230,10 @@ VIOsPAPRDevice *vty_lookup(sPAPRMachineState *spapr, target_ulong reg)
          * (early debug does work there, despite having no vty with
          * reg==0. */
         return spapr_vty_get_default(spapr->vio_bus);
+    }
+
+    if (!object_dynamic_cast(OBJECT(sdev), TYPE_VIO_SPAPR_VTY_DEVICE)) {
+        return NULL;
     }
 
     return sdev;

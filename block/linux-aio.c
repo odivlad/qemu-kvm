@@ -7,6 +7,7 @@
  * This work is licensed under the terms of the GNU GPL, version 2 or later.
  * See the COPYING file in the top-level directory.
  */
+#include "qemu/osdep.h"
 #include "qemu-common.h"
 #include "block/aio.h"
 #include "qemu/queue.h"
@@ -205,7 +206,13 @@ static void ioq_submit(struct qemu_laio_state *s)
             break;
         }
         if (ret < 0) {
-            abort();
+            /* Fail the first request, retry the rest */
+            aiocb = QSIMPLEQ_FIRST(&s->io_q.pending);
+            QSIMPLEQ_REMOVE_HEAD(&s->io_q.pending, next);
+            s->io_q.n--;
+            aiocb->ret = ret;
+            qemu_laio_process_completion(s, aiocb);
+            continue;
         }
 
         s->io_q.n -= ret;
@@ -287,7 +294,7 @@ void laio_detach_aio_context(void *s_, AioContext *old_context)
 {
     struct qemu_laio_state *s = s_;
 
-    aio_set_event_notifier(old_context, &s->e, AIO_CLIENT_PROTOCOL, NULL);
+    aio_set_event_notifier(old_context, &s->e, false, NULL);
     qemu_bh_delete(s->completion_bh);
 }
 
@@ -296,7 +303,7 @@ void laio_attach_aio_context(void *s_, AioContext *new_context)
     struct qemu_laio_state *s = s_;
 
     s->completion_bh = aio_bh_new(new_context, qemu_laio_completion_bh, s);
-    aio_set_event_notifier(new_context, &s->e, AIO_CLIENT_PROTOCOL,
+    aio_set_event_notifier(new_context, &s->e, false,
                            qemu_laio_completion_cb);
 }
 

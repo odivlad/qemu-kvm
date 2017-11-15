@@ -18,6 +18,10 @@
  */
 
 
+#include "qemu/osdep.h"
+#include "qapi/error.h"
+#include "qemu-common.h"
+#include "cpu.h"
 #include "hw/hw.h"
 #include "hw/devices.h"
 #include "net/net.h"
@@ -44,7 +48,7 @@ static void tricore_load_kernel(CPUTriCoreState *env)
     kernel_size = load_elf(tricoretb_binfo.kernel_filename, NULL,
                            NULL, (uint64_t *)&entry, NULL,
                            NULL, 0,
-                           ELF_MACHINE, 1);
+                           EM_TRICORE, 1, 0);
     if (kernel_size <= 0) {
         error_report("qemu: no kernel file '%s'",
                 tricoretb_binfo.kernel_filename);
@@ -115,16 +119,11 @@ static void tricoreboard_init(MachineState *machine)
     tricore_testboard_init(machine, 0x183);
 }
 
-static QEMUMachine ttb_machine = {
-    .name = "tricore_testboard",
-    .desc = "a minimal TriCore board",
-    .init = tricoreboard_init,
-    .is_default = 0,
-};
-
-static void tricore_testboard_machine_init(void)
+static void ttb_machine_init(MachineClass *mc)
 {
-    qemu_register_machine(&ttb_machine);
+    mc->desc = "a minimal TriCore board";
+    mc->init = tricoreboard_init;
+    mc->is_default = 0;
 }
 
-machine_init(tricore_testboard_machine_init);
+DEFINE_MACHINE("tricore_testboard", ttb_machine_init)
