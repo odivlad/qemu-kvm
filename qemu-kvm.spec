@@ -57,7 +57,7 @@
 
 #Versions of various parts:
 
-%define buildid %{nil}
+%define buildid .CROC0.dev01
 %define pkgname qemu-kvm
 %define rhel_ma_suffix -ma
 %define rhel_suffix -rhel
@@ -1116,6 +1116,14 @@ Patch477: kvm-i386-define-the-AMD-virt-ssbd-CPUID-feature-bit-CVE-.patch
 # For bz#1582122 - IOERROR pause code lost after resuming a VM while I/O error is still present [rhel-7.5.z]
 Patch478: kvm-cpus-Fix-event-order-on-resume-of-stopped-guest.patch
 
+# CROC patches and backports
+# ScaleIO driver feature
+Patch9000: 9000-configure-added-CONFIG_SIO-option.patch
+# ScaleIO driver feature
+Patch9001: 9001-fileposix-reuse-sysfs-getter-functiion.patch
+# ScaleIO driver feature
+Patch9002: 9002-fileposix-add-scaleio-driver-implementation.patch
+
 BuildRequires: zlib-devel
 BuildRequires: glib2-devel
 BuildRequires: which
@@ -1769,6 +1777,11 @@ cp %{SOURCE29} pc-bios
 %patch477 -p1
 %patch478 -p1
 
+# CROC patches and backports
+%patch9000 -p1
+%patch9001 -p1
+%patch9002 -p1
+
 # for tscdeadline_latency.flat
 %ifarch x86_64
   tar -xf %{SOURCE25}
@@ -2262,6 +2275,11 @@ useradd -r -u 107 -g qemu -G kvm -d / -s /sbin/nologin \
 %endif
 
 %changelog
+* Wed Jul 04 2018 Mikhail Ushanov <MiUshanov@croc.ru> - ev-2.10.0-21.el7_5.4.1.CROC1
+- 9000-configure-added-CONFIG_SIO-option.patch
+- 9001-fileposix-reuse-sysfs-getter-functiion.patch
+- 9002-fileposix-add-scaleio-driver-implementation.patch
+
 * Thu Jun 28 2018 Sandro Bonazzola <sbonazzo@redhat.com> - ev-2.10.0-21.el7_5.4.1
 - Removing RH branding from package name
 

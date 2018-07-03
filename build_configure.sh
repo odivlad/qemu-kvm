@@ -121,6 +121,7 @@ fi
     --enable-werror \
     --disable-xen \
     --disable-xfsctl \
+    --enable-sio \
     --enable-gnutls \
     --disable-gcrypt \
     --enable-nettle \
