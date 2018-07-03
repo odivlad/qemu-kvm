@@ -27,19 +27,13 @@
 
 #include "qemu/osdep.h"
 
-#include <glib.h>
 #include <glib/gprintf.h>
-
-#include <stdlib.h>
-#include <sys/mman.h>
-#include <fcntl.h>
 
 #include "qemu/memfd.h"
 
 #ifdef CONFIG_MEMFD
 #include <sys/memfd.h>
 #elif defined CONFIG_LINUX
-#include <unistd.h>
 #include <sys/syscall.h>
 #include <asm/unistd.h>
 

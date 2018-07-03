@@ -12,6 +12,7 @@
  */
 
 #include <common.h>
+#include <cli.h>
 #include <linux/ctype.h>
 #include <asm/types.h>
 #include <asm/io.h>
@@ -153,7 +154,9 @@ static void lowest_common_dimm_parameters_edit(fsl_ddr_info_t *pinfo,
 	static const struct options_string options[] = {
 		COMMON_TIMING(tckmin_x_ps),
 		COMMON_TIMING(tckmax_ps),
+#if defined(CONFIG_SYS_FSL_DDR3) || defined(CONFIG_SYS_FSL_DDR4)
 		COMMON_TIMING(taamin_ps),
+#endif
 		COMMON_TIMING(trcd_ps),
 		COMMON_TIMING(trp_ps),
 		COMMON_TIMING(tras_ps),
@@ -204,6 +207,8 @@ static void lowest_common_dimm_parameters_edit(fsl_ddr_info_t *pinfo,
 
 #define DIMM_PARM(x) {#x, offsetof(dimm_params_t, x), \
 	sizeof((dimm_params_t *)0)->x, 0}
+#define DIMM_PARM_HEX(x) {#x, offsetof(dimm_params_t, x), \
+	sizeof((dimm_params_t *)0)->x, 1}
 
 static void fsl_ddr_dimm_parameters_edit(fsl_ddr_info_t *pinfo,
 				   unsigned int ctrl_num,
@@ -219,6 +224,7 @@ static void fsl_ddr_dimm_parameters_edit(fsl_ddr_info_t *pinfo,
 		DIMM_PARM(primary_sdram_width),
 		DIMM_PARM(ec_sdram_width),
 		DIMM_PARM(registered_dimm),
+		DIMM_PARM(mirrored_dimm),
 		DIMM_PARM(device_width),
 
 		DIMM_PARM(n_row_addr),
@@ -273,7 +279,27 @@ static void fsl_ddr_dimm_parameters_edit(fsl_ddr_info_t *pinfo,
 		DIMM_PARM(tdqsq_max_ps),
 		DIMM_PARM(tqhs_ps),
 #endif
-
+#ifdef CONFIG_SYS_FSL_DDR4
+		DIMM_PARM_HEX(dq_mapping[0]),
+		DIMM_PARM_HEX(dq_mapping[1]),
+		DIMM_PARM_HEX(dq_mapping[2]),
+		DIMM_PARM_HEX(dq_mapping[3]),
+		DIMM_PARM_HEX(dq_mapping[4]),
+		DIMM_PARM_HEX(dq_mapping[5]),
+		DIMM_PARM_HEX(dq_mapping[6]),
+		DIMM_PARM_HEX(dq_mapping[7]),
+		DIMM_PARM_HEX(dq_mapping[8]),
+		DIMM_PARM_HEX(dq_mapping[9]),
+		DIMM_PARM_HEX(dq_mapping[10]),
+		DIMM_PARM_HEX(dq_mapping[11]),
+		DIMM_PARM_HEX(dq_mapping[12]),
+		DIMM_PARM_HEX(dq_mapping[13]),
+		DIMM_PARM_HEX(dq_mapping[14]),
+		DIMM_PARM_HEX(dq_mapping[15]),
+		DIMM_PARM_HEX(dq_mapping[16]),
+		DIMM_PARM_HEX(dq_mapping[17]),
+		DIMM_PARM(dq_mapping_ors),
+#endif
 		DIMM_PARM(rank_density),
 		DIMM_PARM(capacity),
 		DIMM_PARM(base_address),
@@ -295,6 +321,7 @@ static void print_dimm_parameters(const dimm_params_t *pdimm)
 		DIMM_PARM(primary_sdram_width),
 		DIMM_PARM(ec_sdram_width),
 		DIMM_PARM(registered_dimm),
+		DIMM_PARM(mirrored_dimm),
 		DIMM_PARM(device_width),
 
 		DIMM_PARM(n_row_addr),
@@ -313,6 +340,7 @@ static void print_dimm_parameters(const dimm_params_t *pdimm)
 		DIMM_PARM(tckmax_ps),
 
 		DIMM_PARM(caslat_x),
+		DIMM_PARM_HEX(caslat_x),
 		DIMM_PARM(taa_ps),
 		DIMM_PARM(caslat_x_minus_1),
 		DIMM_PARM(caslat_x_minus_2),
@@ -321,6 +349,9 @@ static void print_dimm_parameters(const dimm_params_t *pdimm)
 		DIMM_PARM(trcd_ps),
 		DIMM_PARM(trp_ps),
 		DIMM_PARM(tras_ps),
+#if defined(CONFIG_SYS_FSL_DDR4) || defined(CONFIG_SYS_FSL_DDR3)
+		DIMM_PARM(tfaw_ps),
+#endif
 #ifdef CONFIG_SYS_FSL_DDR4
 		DIMM_PARM(trfc1_ps),
 		DIMM_PARM(trfc2_ps),
@@ -345,6 +376,27 @@ static void print_dimm_parameters(const dimm_params_t *pdimm)
 		DIMM_PARM(tdh_ps),
 		DIMM_PARM(tdqsq_max_ps),
 		DIMM_PARM(tqhs_ps),
+#endif
+#ifdef CONFIG_SYS_FSL_DDR4
+		DIMM_PARM_HEX(dq_mapping[0]),
+		DIMM_PARM_HEX(dq_mapping[1]),
+		DIMM_PARM_HEX(dq_mapping[2]),
+		DIMM_PARM_HEX(dq_mapping[3]),
+		DIMM_PARM_HEX(dq_mapping[4]),
+		DIMM_PARM_HEX(dq_mapping[5]),
+		DIMM_PARM_HEX(dq_mapping[6]),
+		DIMM_PARM_HEX(dq_mapping[7]),
+		DIMM_PARM_HEX(dq_mapping[8]),
+		DIMM_PARM_HEX(dq_mapping[9]),
+		DIMM_PARM_HEX(dq_mapping[10]),
+		DIMM_PARM_HEX(dq_mapping[11]),
+		DIMM_PARM_HEX(dq_mapping[12]),
+		DIMM_PARM_HEX(dq_mapping[13]),
+		DIMM_PARM_HEX(dq_mapping[14]),
+		DIMM_PARM_HEX(dq_mapping[15]),
+		DIMM_PARM_HEX(dq_mapping[16]),
+		DIMM_PARM_HEX(dq_mapping[17]),
+		DIMM_PARM(dq_mapping_ors),
 #endif
 	};
 	static const unsigned int n_opts = ARRAY_SIZE(options);
@@ -372,7 +424,9 @@ static void print_lowest_common_dimm_parameters(
 		const common_timing_params_t *plcd_dimm_params)
 {
 	static const struct options_string options[] = {
+#if defined(CONFIG_SYS_FSL_DDR3) || defined(CONFIG_SYS_FSL_DDR4)
 		COMMON_TIMING(taamin_ps),
+#endif
 		COMMON_TIMING(trcd_ps),
 		COMMON_TIMING(trp_ps),
 		COMMON_TIMING(tras_ps),
@@ -462,7 +516,7 @@ static void fsl_ddr_options_edit(fsl_ddr_info_t *pinfo,
 		CTRL_OPTIONS_CS(3, odt_rd_cfg),
 		CTRL_OPTIONS_CS(3, odt_wr_cfg),
 #endif
-#if defined(CONFIG_SYS_FSL_DDR3)
+#if defined(CONFIG_SYS_FSL_DDR3) || defined(CONFIG_SYS_FSL_DDR4)
 		CTRL_OPTIONS_CS(0, odt_rtt_norm),
 		CTRL_OPTIONS_CS(0, odt_rtt_wr),
 #if (CONFIG_CHIP_SELECTS_PER_CTRL > 1)
@@ -510,12 +564,12 @@ static void fsl_ddr_options_edit(fsl_ddr_info_t *pinfo,
 		CTRL_OPTIONS(wrlvl_override),
 		CTRL_OPTIONS(wrlvl_sample),
 		CTRL_OPTIONS(wrlvl_start),
+		CTRL_OPTIONS(cswl_override),
 		CTRL_OPTIONS(rcw_override),
 		CTRL_OPTIONS(rcw_1),
 		CTRL_OPTIONS(rcw_2),
 		CTRL_OPTIONS(ddr_cdr1),
 		CTRL_OPTIONS(ddr_cdr2),
-		CTRL_OPTIONS(tcke_clock_pulse_width_ps),
 		CTRL_OPTIONS(tfaw_window_four_activates_ps),
 		CTRL_OPTIONS(trwt_override),
 		CTRL_OPTIONS(trwt),
@@ -620,7 +674,7 @@ static void print_fsl_memctl_config_regs(const fsl_ddr_cfg_regs_t *ddr)
 
 	print_option_table(options, n_opts, ddr);
 
-	for (i = 0; i < 32; i++)
+	for (i = 0; i < 64; i++)
 		printf("debug_%02d = 0x%08X\n", i+1, ddr->debug[i]);
 }
 
@@ -713,7 +767,7 @@ static void fsl_ddr_regs_edit(fsl_ddr_info_t *pinfo,
 	debug("fsl_ddr_regs_edit: ctrl_num = %u, "
 		"regname = %s, value = %s\n",
 		ctrl_num, regname, value_str);
-	if (ctrl_num > CONFIG_NUM_DDR_CONTROLLERS)
+	if (ctrl_num > CONFIG_SYS_NUM_DDR_CTLRS)
 		return;
 
 	ddr = &(pinfo->fsl_ddr_config_reg[ctrl_num]);
@@ -721,7 +775,7 @@ static void fsl_ddr_regs_edit(fsl_ddr_info_t *pinfo,
 	if (handle_option_table(options, n_opts, ddr, regname, value_str))
 		return;
 
-	for (i = 0; i < 32; i++) {
+	for (i = 0; i < 64; i++) {
 		unsigned int value = simple_strtoul(value_str, NULL, 0);
 		sprintf(buf, "debug_%u", i + 1);
 		if (strcmp(buf, regname) == 0) {
@@ -752,7 +806,7 @@ static void print_memctl_options(const memctl_options_t *popts)
 		CTRL_OPTIONS_CS(3, odt_rd_cfg),
 		CTRL_OPTIONS_CS(3, odt_wr_cfg),
 #endif
-#if defined(CONFIG_SYS_FSL_DDR3)
+#if defined(CONFIG_SYS_FSL_DDR3) || defined(CONFIG_SYS_FSL_DDR4)
 		CTRL_OPTIONS_CS(0, odt_rtt_norm),
 		CTRL_OPTIONS_CS(0, odt_rtt_wr),
 #if (CONFIG_CHIP_SELECTS_PER_CTRL > 1)
@@ -794,18 +848,19 @@ static void print_memctl_options(const memctl_options_t *popts)
 		CTRL_OPTIONS(twot_en),
 		CTRL_OPTIONS(threet_en),
 		CTRL_OPTIONS(registered_dimm_en),
+		CTRL_OPTIONS(mirrored_dimm),
 		CTRL_OPTIONS(ap_en),
 		CTRL_OPTIONS(x4_en),
 		CTRL_OPTIONS(bstopre),
 		CTRL_OPTIONS(wrlvl_override),
 		CTRL_OPTIONS(wrlvl_sample),
 		CTRL_OPTIONS(wrlvl_start),
+		CTRL_OPTIONS_HEX(cswl_override),
 		CTRL_OPTIONS(rcw_override),
 		CTRL_OPTIONS(rcw_1),
 		CTRL_OPTIONS(rcw_2),
 		CTRL_OPTIONS_HEX(ddr_cdr1),
 		CTRL_OPTIONS_HEX(ddr_cdr2),
-		CTRL_OPTIONS(tcke_clock_pulse_width_ps),
 		CTRL_OPTIONS(tfaw_window_four_activates_ps),
 		CTRL_OPTIONS(trwt_override),
 		CTRL_OPTIONS(trwt),
@@ -1578,7 +1633,7 @@ void ddr4_spd_dump(const struct ddr4_spd_eeprom_s *spd)
 		printf("%-3d-%3d: ", 128, 255);
 
 		for (i = 128; i <= 255; i++)
-			printf("%02x", spd->mod_section.uc[i - 60]);
+			printf("%02x", spd->mod_section.uc[i - 128]);
 
 		break;
 	}
@@ -1634,7 +1689,7 @@ static void fsl_ddr_printinfo(const fsl_ddr_info_t *pinfo,
 
 	/* STEP 1:  DIMM SPD data */
 	if (do_mask & STEP_GET_SPD) {
-		for (i = 0; i < CONFIG_NUM_DDR_CONTROLLERS; i++) {
+		for (i = 0; i < CONFIG_SYS_NUM_DDR_CTLRS; i++) {
 			if (!(ctrl_mask & (1 << i)))
 				continue;
 
@@ -1655,7 +1710,7 @@ static void fsl_ddr_printinfo(const fsl_ddr_info_t *pinfo,
 
 	/* STEP 2:  DIMM Parameters */
 	if (do_mask & STEP_COMPUTE_DIMM_PARMS) {
-		for (i = 0; i < CONFIG_NUM_DDR_CONTROLLERS; i++) {
+		for (i = 0; i < CONFIG_SYS_NUM_DDR_CTLRS; i++) {
 			if (!(ctrl_mask & (1 << i)))
 				continue;
 			for (j = 0; j < CONFIG_DIMM_SLOTS_PER_CTLR; j++) {
@@ -1674,7 +1729,7 @@ static void fsl_ddr_printinfo(const fsl_ddr_info_t *pinfo,
 
 	/* STEP 3:  Common Parameters */
 	if (do_mask & STEP_COMPUTE_COMMON_PARMS) {
-		for (i = 0; i < CONFIG_NUM_DDR_CONTROLLERS; i++) {
+		for (i = 0; i < CONFIG_SYS_NUM_DDR_CTLRS; i++) {
 			if (!(ctrl_mask & (1 << i)))
 				continue;
 			printf("\"lowest common\" DIMM parameters:  "
@@ -1688,7 +1743,7 @@ static void fsl_ddr_printinfo(const fsl_ddr_info_t *pinfo,
 
 	/* STEP 4:  User Configuration Options */
 	if (do_mask & STEP_GATHER_OPTS) {
-		for (i = 0; i < CONFIG_NUM_DDR_CONTROLLERS; i++) {
+		for (i = 0; i < CONFIG_SYS_NUM_DDR_CTLRS; i++) {
 			if (!(ctrl_mask & (1 << i)))
 				continue;
 			printf("User Config Options: Controller=%u\n", i);
@@ -1700,7 +1755,7 @@ static void fsl_ddr_printinfo(const fsl_ddr_info_t *pinfo,
 
 	/* STEP 5:  Address assignment */
 	if (do_mask & STEP_ASSIGN_ADDRESSES) {
-		for (i = 0; i < CONFIG_NUM_DDR_CONTROLLERS; i++) {
+		for (i = 0; i < CONFIG_SYS_NUM_DDR_CTLRS; i++) {
 			if (!(ctrl_mask & (1 << i)))
 				continue;
 			for (j = 0; j < CONFIG_DIMM_SLOTS_PER_CTLR; j++) {
@@ -1715,7 +1770,7 @@ static void fsl_ddr_printinfo(const fsl_ddr_info_t *pinfo,
 
 	/* STEP 6:  computed controller register values */
 	if (do_mask & STEP_COMPUTE_REGS) {
-		for (i = 0; i < CONFIG_NUM_DDR_CONTROLLERS; i++) {
+		for (i = 0; i < CONFIG_SYS_NUM_DDR_CTLRS; i++) {
 			if (!(ctrl_mask & (1 << i)))
 				continue;
 			printf("Computed Register Values: Controller=%u\n", i);
@@ -1864,11 +1919,12 @@ unsigned long long fsl_ddr_interactive(fsl_ddr_info_t *pinfo, int var_is_set)
 		} else {
 			/*
 			 * No need to worry for buffer overflow here in
-			 * this function;  readline() maxes out at CFG_CBSIZE
+			 * this function;  cli_readline() maxes out at
+			 * CFG_CBSIZE
 			 */
-			readline_into_buffer(prompt, buffer, 0);
+			cli_readline_into_buffer(prompt, buffer, 0);
 		}
-		argc = parse_line(buffer, argv);
+		argc = cli_simple_parse_line(buffer, argv);
 		if (argc == 0)
 			continue;
 

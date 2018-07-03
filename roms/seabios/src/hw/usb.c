@@ -8,6 +8,7 @@
 #include "config.h" // CONFIG_*
 #include "malloc.h" // free
 #include "output.h" // dprintf
+#include "romfile.h" // romfile_loadint
 #include "string.h" // memset
 #include "usb.h" // struct usb_s
 #include "usb-ehci.h" // ehci_setup
@@ -79,9 +80,8 @@ usb_poll_intr(struct usb_pipe *pipe_fl, void *data)
     case USB_TYPE_EHCI:
         return ehci_poll_intr(pipe_fl, data);
     case USB_TYPE_XHCI: ;
-        extern void _cfunc32flat_xhci_poll_intr(void);
-        return call32_params(_cfunc32flat_xhci_poll_intr, (u32)pipe_fl
-                             , (u32)MAKE_FLATPTR(GET_SEG(SS), (u32)data), 0, -1);
+        return call32_params(xhci_poll_intr, pipe_fl
+                             , MAKE_FLATPTR(GET_SEG(SS), data), 0, -1);
     }
 }
 
@@ -249,8 +249,10 @@ get_device_config(struct usb_pipe *pipe)
         return NULL;
 
     void *config = malloc_tmphigh(cfg.wTotalLength);
-    if (!config)
+    if (!config) {
+        warn_noalloc();
         return NULL;
+    }
     req.wLength = cfg.wTotalLength;
     ret = usb_send_default_control(pipe, &req, config);
     if (ret) {
@@ -454,12 +456,14 @@ resetfail:
     goto done;
 }
 
+u32 usb_time_sigatt;
+
 void
 usb_enumerate(struct usbhub_s *hub)
 {
     u32 portcount = hub->portcount;
     hub->threads = portcount;
-    hub->detectend = timer_calc(USB_TIME_SIGATT);
+    hub->detectend = timer_calc(usb_time_sigatt);
 
     // Launch a thread for every port.
     int i;
@@ -481,20 +485,15 @@ usb_enumerate(struct usbhub_s *hub)
 }
 
 void
-__usb_setup(void *data)
-{
-    dprintf(3, "init usb\n");
-    xhci_setup();
-    ehci_setup();
-    uhci_setup();
-    ohci_setup();
-}
-
-void
 usb_setup(void)
 {
     ASSERT32FLAT();
     if (! CONFIG_USB)
         return;
-    run_thread(__usb_setup, NULL);
+    dprintf(3, "init usb\n");
+    usb_time_sigatt = romfile_loadint("etc/usb-time-sigatt", USB_TIME_SIGATT);
+    xhci_setup();
+    ehci_setup();
+    uhci_setup();
+    ohci_setup();
 }

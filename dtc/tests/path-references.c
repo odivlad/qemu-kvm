@@ -22,7 +22,6 @@
 #include <string.h>
 #include <stdint.h>
 
-#include <fdt.h>
 #include <libfdt.h>
 
 #include "tests.h"
@@ -46,6 +45,20 @@ static void check_ref(const void *fdt, int node, const char *checkpath)
 	if (!streq(p, checkpath))
 		FAIL("'lref' in node at %d has value \"%s\" instead of \"%s\"",
 		     node, p, checkpath);
+}
+
+static void check_rref(const void *fdt)
+{
+	const char *p;
+	int len;
+
+	/* Check reference to root node */
+	p = fdt_getprop(fdt, 0, "rref", &len);
+	if (!p)
+		FAIL("fdt_getprop(0, \"rref\"): %s", fdt_strerror(len));
+	if (!streq(p, "/"))
+		FAIL("'rref' in root node has value \"%s\" instead of \"/\"",
+		     p);
 }
 
 int main(int argc, char *argv[])
@@ -78,6 +91,8 @@ int main(int argc, char *argv[])
 		     len, multilen);
 	if ((!streq(p, "/node1") || !streq(p + strlen("/node1") + 1, "/node2")))
 		FAIL("multiref has wrong value");
+
+	check_rref(fdt);
 
 	PASS();
 }

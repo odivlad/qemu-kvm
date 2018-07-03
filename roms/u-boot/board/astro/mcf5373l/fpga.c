@@ -15,6 +15,7 @@
 /* Altera/Xilinx FPGA configuration support for the ASTRO "URMEL" board */
 
 #include <common.h>
+#include <console.h>
 #include <watchdog.h>
 #include <altera.h>
 #include <ACEX1K.h>
@@ -100,7 +101,7 @@ int altera_done_fn(int cookie)
  * writing the complete buffer in one function is much faster,
  * then calling it for every bit
  */
-int altera_write_fn(void *buf, size_t len, int flush, int cookie)
+int altera_write_fn(const void *buf, size_t len, int flush, int cookie)
 {
 	size_t bytecount = 0;
 	gpio_t *gpiop = (gpio_t *)MMAP_GPIO;

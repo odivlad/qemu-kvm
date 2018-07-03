@@ -19,21 +19,32 @@
 #include <asm/io.h>
 #include <linux/sizes.h>
 #include <errno.h>
+#include <asm/arch/sys_proto.h>
 
 #define PCI_ACCESS_READ  0
 #define PCI_ACCESS_WRITE 1
 
+#ifdef CONFIG_MX6SX
+#define MX6_DBI_ADDR	0x08ffc000
+#define MX6_IO_ADDR	0x08000000
+#define MX6_MEM_ADDR	0x08100000
+#define MX6_ROOT_ADDR	0x08f00000
+#else
 #define MX6_DBI_ADDR	0x01ffc000
-#define MX6_DBI_SIZE	0x4000
 #define MX6_IO_ADDR	0x01000000
-#define MX6_IO_SIZE	0x100000
 #define MX6_MEM_ADDR	0x01100000
-#define MX6_MEM_SIZE	0xe00000
 #define MX6_ROOT_ADDR	0x01f00000
+#endif
+#define MX6_DBI_SIZE	0x4000
+#define MX6_IO_SIZE	0x100000
+#define MX6_MEM_SIZE	0xe00000
 #define MX6_ROOT_SIZE	0xfc000
 
 /* PCIe Port Logic registers (memory-mapped) */
 #define PL_OFFSET 0x700
+#define PCIE_PL_PFLR (PL_OFFSET + 0x08)
+#define PCIE_PL_PFLR_LINK_STATE_MASK		(0x3f << 16)
+#define PCIE_PL_PFLR_FORCE_LINK			(1 << 15)
 #define PCIE_PHY_DEBUG_R0 (PL_OFFSET + 0x28)
 #define PCIE_PHY_DEBUG_R1 (PL_OFFSET + 0x2c)
 #define PCIE_PHY_DEBUG_R1_LINK_UP		(1 << 4)
@@ -56,6 +67,8 @@
 #define PHY_RX_OVRD_IN_LO 0x1005
 #define PHY_RX_OVRD_IN_LO_RX_DATA_EN (1 << 5)
 #define PHY_RX_OVRD_IN_LO_RX_PLL_EN (1 << 3)
+
+#define PCIE_PHY_PUP_REQ		(1 << 7)
 
 /* iATU registers */
 #define PCIE_ATU_VIEWPORT		0x900
@@ -371,7 +384,7 @@ static int imx_pcie_read_config(struct pci_controller *hose, pci_dev_t d,
 	ret = imx_pcie_addr_valid(d);
 	if (ret) {
 		*val = 0xffffffff;
-		return ret;
+		return 0;
 	}
 
 	va_address = get_bus_address(d, where);
@@ -422,8 +435,52 @@ static int imx6_pcie_assert_core_reset(void)
 {
 	struct iomuxc *iomuxc_regs = (struct iomuxc *)IOMUXC_BASE_ADDR;
 
+	if (is_mx6dqp())
+		setbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_PCIE_SW_RST);
+
+#if defined(CONFIG_MX6SX)
+	struct gpc *gpc_regs = (struct gpc *)GPC_BASE_ADDR;
+
+	/* SSP_EN is not used on MX6SX anymore */
+	setbits_le32(&iomuxc_regs->gpr[12], IOMUXC_GPR12_TEST_POWERDOWN);
+	/* Force PCIe PHY reset */
+	setbits_le32(&iomuxc_regs->gpr[5], IOMUXC_GPR5_PCIE_BTNRST);
+	/* Power up PCIe PHY */
+	setbits_le32(&gpc_regs->cntr, PCIE_PHY_PUP_REQ);
+#else
+	/*
+	 * If the bootloader already enabled the link we need some special
+	 * handling to get the core back into a state where it is safe to
+	 * touch it for configuration.  As there is no dedicated reset signal
+	 * wired up for MX6QDL, we need to manually force LTSSM into "detect"
+	 * state before completely disabling LTSSM, which is a prerequisite
+	 * for core configuration.
+	 *
+	 * If both LTSSM_ENABLE and REF_SSP_ENABLE are active we have a strong
+	 * indication that the bootloader activated the link.
+	 */
+	if (is_mx6dq()) {
+		u32 val, gpr1, gpr12;
+
+		gpr1 = readl(&iomuxc_regs->gpr[1]);
+		gpr12 = readl(&iomuxc_regs->gpr[12]);
+		if ((gpr1 & IOMUXC_GPR1_PCIE_REF_CLK_EN) &&
+		    (gpr12 & IOMUXC_GPR12_PCIE_CTL_2)) {
+			val = readl(MX6_DBI_ADDR + PCIE_PL_PFLR);
+			val &= ~PCIE_PL_PFLR_LINK_STATE_MASK;
+			val |= PCIE_PL_PFLR_FORCE_LINK;
+
+			imx_pcie_fix_dabt_handler(true);
+			writel(val, MX6_DBI_ADDR + PCIE_PL_PFLR);
+			imx_pcie_fix_dabt_handler(false);
+
+			gpr12 &= ~IOMUXC_GPR12_PCIE_CTL_2;
+			writel(val, &iomuxc_regs->gpr[12]);
+		}
+	}
 	setbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_TEST_POWERDOWN);
 	clrbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_REF_SSP_EN);
+#endif
 
 	return 0;
 }
@@ -440,6 +497,12 @@ static int imx6_pcie_init_phy(void)
 	clrsetbits_le32(&iomuxc_regs->gpr[12],
 			IOMUXC_GPR12_LOS_LEVEL_MASK,
 			IOMUXC_GPR12_LOS_LEVEL_9);
+
+#ifdef CONFIG_MX6SX
+	clrsetbits_le32(&iomuxc_regs->gpr[12],
+			IOMUXC_GPR12_RX_EQ_MASK,
+			IOMUXC_GPR12_RX_EQ_2);
+#endif
 
 	writel((0x0 << IOMUXC_GPR8_PCS_TX_DEEMPH_GEN1_OFFSET) |
 	       (0x0 << IOMUXC_GPR8_PCS_TX_DEEMPH_GEN2_3P5DB_OFFSET) |
@@ -470,7 +533,7 @@ __weak int imx6_pcie_toggle_reset(void)
 	 *
 	 * The PCIe #PERST reset line _MUST_ be connected, otherwise your
 	 * design does not conform to the specification. You must wait at
-	 * least 20 mS after de-asserting the #PERST so the EP device can
+	 * least 20 ms after de-asserting the #PERST so the EP device can
 	 * do self-initialisation.
 	 *
 	 * In case your #PERST pin is connected to a plain GPIO pin of the
@@ -481,7 +544,7 @@ __weak int imx6_pcie_toggle_reset(void)
 	 * In case your #PERST toggling logic is more complex, for example
 	 * connected via CPLD or somesuch, you can override this function
 	 * in your board file and implement reset logic as needed. You must
-	 * not forget to wait at least 20 mS after de-asserting #PERST in
+	 * not forget to wait at least 20 ms after de-asserting #PERST in
 	 * this case either though.
 	 *
 	 * In case your #PERST line of the PCIe EP device is not connected
@@ -509,17 +572,27 @@ static int imx6_pcie_deassert_core_reset(void)
 
 	imx6_pcie_toggle_power();
 
-	/* Enable PCIe */
-	clrbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_TEST_POWERDOWN);
-	setbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_REF_SSP_EN);
-
 	enable_pcie_clock();
+
+	if (is_mx6dqp())
+		clrbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_PCIE_SW_RST);
 
 	/*
 	 * Wait for the clock to settle a bit, when the clock are sourced
-	 * from the CPU, we need about 30mS to settle.
+	 * from the CPU, we need about 30 ms to settle.
 	 */
 	mdelay(50);
+
+#if defined(CONFIG_MX6SX)
+	/* SSP_EN is not used on MX6SX anymore */
+	clrbits_le32(&iomuxc_regs->gpr[12], IOMUXC_GPR12_TEST_POWERDOWN);
+	/* Clear PCIe PHY reset bit */
+	clrbits_le32(&iomuxc_regs->gpr[5], IOMUXC_GPR5_PCIE_BTNRST);
+#else
+	/* Enable PCIe */
+	clrbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_TEST_POWERDOWN);
+	setbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_REF_SSP_EN);
+#endif
 
 	imx6_pcie_toggle_reset();
 
@@ -555,8 +628,10 @@ static int imx_pcie_link_up(void)
 	while (!imx6_pcie_link_up()) {
 		udelay(10);
 		count++;
-		if (count >= 2000) {
-			debug("phy link never came up\n");
+		if (count >= 4000) {
+#ifdef CONFIG_PCI_SCAN_SHOW
+			puts("PCI:   pcie phy link never came up\n");
+#endif
 			debug("DEBUG_R0: 0x%08x, DEBUG_R1: 0x%08x\n",
 			      readl(MX6_DBI_ADDR + PCIE_PHY_DEBUG_R0),
 			      readl(MX6_DBI_ADDR + PCIE_PHY_DEBUG_R1));
@@ -608,6 +683,11 @@ void imx_pcie_init(void)
 		pci_register_hose(hose);
 		hose->last_busno = pci_hose_scan(hose);
 	}
+}
+
+void imx_pcie_remove(void)
+{
+	imx6_pcie_assert_core_reset();
 }
 
 /* Probe function. */

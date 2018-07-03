@@ -3,22 +3,11 @@
  *
  * Copyright (C) 2008  Yoshihiro Shimoda <shimoda.yoshihiro@renesas.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- *
+ * SPDX-License-Identifier:	GPL-2.0
  */
 
 #include <common.h>
+#include <console.h>
 #include <usb.h>
 #include <asm/io.h>
 
@@ -164,8 +153,8 @@ static int enable_controller(struct r8a66597 *r8a66597)
 
 	r8a66597_bset(r8a66597, INTL, SOFCFG);
 	r8a66597_write(r8a66597, 0, INTENB0);
-	r8a66597_write(r8a66597, 0, INTENB1);
-	r8a66597_write(r8a66597, 0, INTENB2);
+	for (port = 0; port < R8A66597_MAX_ROOT_HUB; port++)
+		r8a66597_write(r8a66597, 0, get_intenb_reg(port));
 
 	r8a66597_bset(r8a66597, CONFIG_R8A66597_ENDIAN & BIGEND, CFIFOSEL);
 	r8a66597_bset(r8a66597, CONFIG_R8A66597_ENDIAN & BIGEND, D0FIFOSEL);
@@ -550,9 +539,6 @@ static int check_usb_device_connecting(struct r8a66597 *r8a66597)
 	return -1;	/* fail */
 }
 
-/* based on usb_ohci.c */
-#define min_t(type, x, y) \
-		({ type __x = (x); type __y = (y); __x < __y ? __x : __y; })
 /*-------------------------------------------------------------------------*
  * Virtual Root Hub
  *-------------------------------------------------------------------------*/
@@ -807,7 +793,7 @@ int usb_lowlevel_init(int index, enum usb_init_type init, void **controller)
 
 	R8A66597_DPRINT("%s\n", __func__);
 
-	memset(r8a66597, 0, sizeof(r8a66597));
+	memset(r8a66597, 0, sizeof(*r8a66597));
 	r8a66597->reg = CONFIG_R8A66597_BASE_ADDR;
 
 	disable_controller(r8a66597);

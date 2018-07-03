@@ -77,23 +77,32 @@ struct ci_udc {
 #define CTRL_TXT_BULK	(2 << 18)
 #define CTRL_RXT_BULK	(2 << 2)
 
+struct ci_req {
+	struct usb_request	req;
+	struct list_head	queue;
+	/* Bounce buffer allocated if needed to align the transfer */
+	uint8_t *b_buf;
+	uint32_t b_len;
+	/* Buffer for the current transfer. Either req.buf/len or b_buf/len */
+	uint8_t *hw_buf;
+	uint32_t hw_len;
+	uint32_t dtd_count;
+};
+
 struct ci_ep {
 	struct usb_ep ep;
 	struct list_head queue;
+	bool req_primed;
 	const struct usb_endpoint_descriptor *desc;
-
-	struct usb_request req;
-	uint8_t *b_buf;
-	uint32_t b_len;
-	uint8_t b_fast[64] __aligned(ARCH_DMA_MINALIGN);
 };
 
 struct ci_drv {
 	struct usb_gadget		gadget;
+	struct ci_req			*ep0_req;
+	bool				ep0_data_phase;
 	struct usb_gadget_driver	*driver;
 	struct ehci_ctrl		*ctrl;
 	struct ept_queue_head		*epts;
-	struct ept_queue_item		*items[2 * NUM_ENDPOINTS];
 	uint8_t				*items_mem;
 	struct ci_ep			ep[NUM_ENDPOINTS];
 };

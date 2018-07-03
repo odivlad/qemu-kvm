@@ -15,14 +15,10 @@
  * High Level Configuration Options (easy to change)                    *
  *----------------------------------------------------------------------*/
 
-#define	CONFIG_MCF52x2			/* define processor family */
-#define CONFIG_M5282			/* define processor type */
-
 #define CONFIG_MISC_INIT_R
 
 #define CONFIG_MCFUART
 #define CONFIG_SYS_UART_PORT		(0)
-#define CONFIG_BAUDRATE			115200
 
 #undef	CONFIG_MONITOR_IS_IN_RAM		/* starts uboot direct */
 
@@ -38,13 +34,7 @@
 
 #define CONFIG_HW_WATCHDOG
 
-#define CONFIG_STATUS_LED
-#define CONFIG_BOARD_SPECIFIC_LED
 #define STATUS_LED_ACTIVE		0
-#define STATUS_LED_BIT			0x0008	/* Timer7 GPIO */
-#define STATUS_LED_BOOT			0
-#define STATUS_LED_PERIOD		(CONFIG_SYS_HZ / 2)
-#define STATUS_LED_STATE		STATUS_LED_OFF
 
 /*----------------------------------------------------------------------*
  * Configuration for environment					*
@@ -67,20 +57,9 @@
  * Command line configuration.
  */
 #define CONFIG_CMDLINE_EDITING
-#include <config_cmd_default.h>
-
-#undef CONFIG_CMD_LOADB
-#define CONFIG_CMD_DATE
-#define CONFIG_CMD_DHCP
-#define CONFIG_CMD_I2C
-#define CONFIG_CMD_LED
-#define CONFIG_CMD_MII
-#define CONFIG_CMD_NET
 
 #define CONFIG_MCFTMR
 
-#define CONFIG_BOOTDELAY	5
-#define CONFIG_SYS_PROMPT	"\nEB+CPU5282> "
 #define	CONFIG_SYS_LONGHELP	1
 
 #define	CONFIG_SYS_CBSIZE	1024	/* Console I/O Buffer Size	*/
@@ -262,8 +241,6 @@
 /*-----------------------------------------------------------------------
  * VIDEO configuration
  */
-
-#define CONFIG_VIDEO
 
 #ifdef CONFIG_VIDEO
 #define CONFIG_VIDEO_VCXK			1

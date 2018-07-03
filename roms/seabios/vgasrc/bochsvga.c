@@ -13,8 +13,9 @@
 #include "hw/pci_regs.h" // PCI_BASE_ADDRESS_0
 #include "output.h" // dprintf
 #include "std/vbe.h" // VBE_CAPABILITY_8BIT_DAC
-#include "stdvga.h" // VGAREG_SEQU_ADDRESS
-#include "vgabios.h" // struct vbe_modeinfo
+#include "stdvga.h" // stdvga_get_linelength
+#include "vgabios.h" // SET_VGA
+#include "vgautil.h" // VBE_total_memory
 #include "x86.h" // outw
 
 
@@ -403,10 +404,7 @@ bochsvga_setup(void)
         case 0x15ad: /* qemu vmware vga */
             barid = 1;
             break;
-        case 0x1af4: /* virtio-vga */
-            barid = 2;
-            break;
-        default: /* stdvga, qxl */
+        default: /* stdvga, qxl, virtio */
             barid = 0;
             break;
         }

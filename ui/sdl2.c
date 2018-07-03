@@ -23,12 +23,7 @@
  */
 /* Ported SDL 1.2 code to 2.0 by Dave Airlie. */
 
-/* Avoid compiler warning because macro is redefined in SDL_syswm.h. */
-#undef WIN32_LEAN_AND_MEAN
-
-#include <SDL.h>
-#include <SDL_syswm.h>
-
+#include "qemu/osdep.h"
 #include "qemu-common.h"
 #include "ui/console.h"
 #include "ui/input.h"
@@ -54,6 +49,10 @@ static int guest_cursor;
 static int guest_x, guest_y;
 static SDL_Cursor *guest_sprite;
 static Notifier mouse_mode_notifier;
+
+#define SDL2_REFRESH_INTERVAL_BUSY 10
+#define SDL2_MAX_IDLE_COUNT (2 * GUI_REFRESH_INTERVAL_DEFAULT \
+                             / SDL2_REFRESH_INTERVAL_BUSY + 1)
 
 static void sdl_update_caption(struct sdl2_console *scon);
 
@@ -92,6 +91,9 @@ void sdl2_window_create(struct sdl2_console *scon)
                                          surface_height(scon->surface),
                                          flags);
     scon->real_renderer = SDL_CreateRenderer(scon->real_window, -1, 0);
+    if (scon->opengl) {
+        scon->winctx = SDL_GL_GetCurrentContext();
+    }
     sdl_update_caption(scon);
 }
 
@@ -116,6 +118,17 @@ void sdl2_window_resize(struct sdl2_console *scon)
     SDL_SetWindowSize(scon->real_window,
                       surface_width(scon->surface),
                       surface_height(scon->surface));
+}
+
+static void sdl2_redraw(struct sdl2_console *scon)
+{
+    if (scon->opengl) {
+#ifdef CONFIG_OPENGL
+        sdl2_gl_redraw(scon);
+#endif
+    } else {
+        sdl2_2d_redraw(scon);
+    }
 }
 
 static void sdl_update_caption(struct sdl2_console *scon)
@@ -248,7 +261,7 @@ static void sdl_mouse_mode_change(Notifier *notify, void *data)
 static void sdl_send_mouse_event(struct sdl2_console *scon, int dx, int dy,
                                  int x, int y, int state)
 {
-    static uint32_t bmap[INPUT_BUTTON_MAX] = {
+    static uint32_t bmap[INPUT_BUTTON__MAX] = {
         [INPUT_BUTTON_LEFT]       = SDL_BUTTON(SDL_BUTTON_LEFT),
         [INPUT_BUTTON_MIDDLE]     = SDL_BUTTON(SDL_BUTTON_MIDDLE),
         [INPUT_BUTTON_RIGHT]      = SDL_BUTTON(SDL_BUTTON_RIGHT),
@@ -285,8 +298,8 @@ static void sdl_send_mouse_event(struct sdl2_console *scon, int dx, int dy,
                 }
             }
         }
-        qemu_input_queue_abs(scon->dcl.con, INPUT_AXIS_X, off_x + x, max_w);
-        qemu_input_queue_abs(scon->dcl.con, INPUT_AXIS_Y, off_y + y, max_h);
+        qemu_input_queue_abs(scon->dcl.con, INPUT_AXIS_X, off_x + x, 0, max_w);
+        qemu_input_queue_abs(scon->dcl.con, INPUT_AXIS_Y, off_y + y, 0, max_h);
     } else {
         if (guest_cursor) {
             x -= guest_x;
@@ -316,7 +329,7 @@ static void toggle_full_screen(struct sdl2_console *scon)
         }
         SDL_SetWindowFullscreen(scon->real_window, 0);
     }
-    sdl2_2d_redraw(scon);
+    sdl2_redraw(scon);
 }
 
 static void handle_keydown(SDL_Event *ev)
@@ -344,6 +357,10 @@ static void handle_keydown(SDL_Event *ev)
         case SDL_SCANCODE_7:
         case SDL_SCANCODE_8:
         case SDL_SCANCODE_9:
+            if (gui_grab) {
+                sdl_grab_end(scon);
+            }
+
             win = ev->key.keysym.scancode - SDL_SCANCODE_1;
             if (win < sdl2_num_outputs) {
                 sdl2_console[win].hidden = !sdl2_console[win].hidden;
@@ -364,8 +381,10 @@ static void handle_keydown(SDL_Event *ev)
         case SDL_SCANCODE_U:
             sdl2_window_destroy(scon);
             sdl2_window_create(scon);
-            /* re-create texture */
-            sdl2_2d_switch(&scon->dcl, scon->surface);
+            if (!scon->opengl) {
+                /* re-create scon->texture */
+                sdl2_2d_switch(&scon->dcl, scon->surface);
+            }
             gui_keysym = 1;
             break;
 #if 0
@@ -384,7 +403,7 @@ static void handle_keydown(SDL_Event *ev)
                 fprintf(stderr, "%s: scale to %dx%d\n",
                         __func__, width, height);
                 sdl_scale(scon, width, height);
-                sdl2_2d_redraw(scon);
+                sdl2_redraw(scon);
                 gui_keysym = 1;
             }
 #endif
@@ -511,6 +530,10 @@ static void handle_windowevent(SDL_Event *ev)
 {
     struct sdl2_console *scon = get_scon_from_window(ev->window.windowID);
 
+    if (!scon) {
+        return;
+    }
+
     switch (ev->window.event) {
     case SDL_WINDOWEVENT_RESIZED:
         {
@@ -520,10 +543,10 @@ static void handle_windowevent(SDL_Event *ev)
             info.height = ev->window.data2;
             dpy_set_ui_info(scon->dcl.con, &info);
         }
-        sdl2_2d_redraw(scon);
+        sdl2_redraw(scon);
         break;
     case SDL_WINDOWEVENT_EXPOSED:
-        sdl2_2d_redraw(scon);
+        sdl2_redraw(scon);
         break;
     case SDL_WINDOWEVENT_FOCUS_GAINED:
     case SDL_WINDOWEVENT_ENTER:
@@ -545,7 +568,7 @@ static void handle_windowevent(SDL_Event *ev)
     case SDL_WINDOWEVENT_CLOSE:
         if (!no_quit) {
             no_shutdown = 0;
-            qemu_system_shutdown_request();
+            qemu_system_shutdown_request(SHUTDOWN_CAUSE_HOST_UI);
         }
         break;
     case SDL_WINDOWEVENT_SHOWN:
@@ -564,6 +587,7 @@ static void handle_windowevent(SDL_Event *ev)
 void sdl2_poll_events(struct sdl2_console *scon)
 {
     SDL_Event ev1, *ev = &ev1;
+    int idle = 1;
 
     if (scon->last_vm_running != runstate_is_running()) {
         scon->last_vm_running = runstate_is_running();
@@ -573,28 +597,34 @@ void sdl2_poll_events(struct sdl2_console *scon)
     while (SDL_PollEvent(ev)) {
         switch (ev->type) {
         case SDL_KEYDOWN:
+            idle = 0;
             handle_keydown(ev);
             break;
         case SDL_KEYUP:
+            idle = 0;
             handle_keyup(ev);
             break;
         case SDL_TEXTINPUT:
+            idle = 0;
             handle_textinput(ev);
             break;
         case SDL_QUIT:
             if (!no_quit) {
                 no_shutdown = 0;
-                qemu_system_shutdown_request();
+                qemu_system_shutdown_request(SHUTDOWN_CAUSE_HOST_UI);
             }
             break;
         case SDL_MOUSEMOTION:
+            idle = 0;
             handle_mousemotion(ev);
             break;
         case SDL_MOUSEBUTTONDOWN:
         case SDL_MOUSEBUTTONUP:
+            idle = 0;
             handle_mousebutton(ev);
             break;
         case SDL_MOUSEWHEEL:
+            idle = 0;
             handle_mousewheel(ev);
             break;
         case SDL_WINDOWEVENT:
@@ -603,6 +633,18 @@ void sdl2_poll_events(struct sdl2_console *scon)
         default:
             break;
         }
+    }
+
+    if (idle) {
+        if (scon->idle_counter < SDL2_MAX_IDLE_COUNT) {
+            scon->idle_counter++;
+            if (scon->idle_counter >= SDL2_MAX_IDLE_COUNT) {
+                scon->dcl.update_interval = GUI_REFRESH_INTERVAL_DEFAULT;
+            }
+        }
+    } else {
+        scon->idle_counter = 0;
+        scon->dcl.update_interval = SDL2_REFRESH_INTERVAL_BUSY;
     }
 }
 
@@ -677,12 +719,50 @@ static const DisplayChangeListenerOps dcl_2d_ops = {
     .dpy_cursor_define    = sdl_mouse_define,
 };
 
+#ifdef CONFIG_OPENGL
+static const DisplayChangeListenerOps dcl_gl_ops = {
+    .dpy_name                = "sdl2-gl",
+    .dpy_gfx_update          = sdl2_gl_update,
+    .dpy_gfx_switch          = sdl2_gl_switch,
+    .dpy_gfx_check_format    = console_gl_check_format,
+    .dpy_refresh             = sdl2_gl_refresh,
+    .dpy_mouse_set           = sdl_mouse_warp,
+    .dpy_cursor_define       = sdl_mouse_define,
+
+    .dpy_gl_ctx_create       = sdl2_gl_create_context,
+    .dpy_gl_ctx_destroy      = sdl2_gl_destroy_context,
+    .dpy_gl_ctx_make_current = sdl2_gl_make_context_current,
+    .dpy_gl_ctx_get_current  = sdl2_gl_get_current_context,
+    .dpy_gl_scanout_disable  = sdl2_gl_scanout_disable,
+    .dpy_gl_scanout_texture  = sdl2_gl_scanout_texture,
+    .dpy_gl_update           = sdl2_gl_scanout_flush,
+};
+#endif
+
+void sdl_display_early_init(int opengl)
+{
+    switch (opengl) {
+    case -1: /* default */
+    case 0:  /* off */
+        break;
+    case 1: /* on */
+#ifdef CONFIG_OPENGL
+        display_opengl = 1;
+#endif
+        break;
+    default:
+        g_assert_not_reached();
+        break;
+    }
+}
+
 void sdl_display_init(DisplayState *ds, int full_screen, int no_frame)
 {
     int flags;
     uint8_t data = 0;
     char *filename;
     int i;
+    SDL_SysWMinfo info;
 
     if (no_frame) {
         gui_noframe = 1;
@@ -708,6 +788,8 @@ void sdl_display_init(DisplayState *ds, int full_screen, int no_frame)
         exit(1);
     }
     SDL_SetHint(SDL_HINT_GRAB_KEYBOARD, "1");
+    memset(&info, 0, sizeof(info));
+    SDL_VERSION(&info.version);
 
     for (i = 0;; i++) {
         QemuConsole *con = qemu_console_lookup_by_index(i);
@@ -716,16 +798,36 @@ void sdl_display_init(DisplayState *ds, int full_screen, int no_frame)
         }
     }
     sdl2_num_outputs = i;
+    if (sdl2_num_outputs == 0) {
+        return;
+    }
     sdl2_console = g_new0(struct sdl2_console, sdl2_num_outputs);
     for (i = 0; i < sdl2_num_outputs; i++) {
         QemuConsole *con = qemu_console_lookup_by_index(i);
+        assert(con != NULL);
         if (!qemu_console_is_graphic(con)) {
             sdl2_console[i].hidden = true;
         }
+        sdl2_console[i].idx = i;
+#ifdef CONFIG_OPENGL
+        sdl2_console[i].opengl = display_opengl;
+        sdl2_console[i].dcl.ops = display_opengl ? &dcl_gl_ops : &dcl_2d_ops;
+#else
+        sdl2_console[i].opengl = 0;
         sdl2_console[i].dcl.ops = &dcl_2d_ops;
+#endif
         sdl2_console[i].dcl.con = con;
         register_displaychangelistener(&sdl2_console[i].dcl);
-        sdl2_console[i].idx = i;
+
+#if defined(SDL_VIDEO_DRIVER_WINDOWS) || defined(SDL_VIDEO_DRIVER_X11)
+        if (SDL_GetWindowWMInfo(sdl2_console[i].real_window, &info)) {
+#if defined(SDL_VIDEO_DRIVER_WINDOWS)
+            qemu_console_set_window_id(con, (uintptr_t)info.info.win.window);
+#elif defined(SDL_VIDEO_DRIVER_X11)
+            qemu_console_set_window_id(con, info.info.x11.window);
+#endif
+        }
+#endif
     }
 
     /* Load a 32x32x4 image. White pixels are transparent. */

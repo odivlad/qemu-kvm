@@ -17,6 +17,8 @@
  * SPDX-License-Identifier:	GPL-2.0+
  */
 #include <common.h>
+#include <dm.h>
+#include <ns16550.h>
 #include <twl4030.h>
 #include <asm/io.h>
 #include <asm/arch/mmc_host_def.h>
@@ -41,6 +43,18 @@ static u32 gpmc_net_config[GPMC_MAX_REG] = {
 	NET_GPMC_CONFIG5,
 	NET_GPMC_CONFIG6,
 	0
+};
+
+static const struct ns16550_platdata devkit8000_serial = {
+	.base = OMAP34XX_UART3,
+	.reg_shift = 2,
+	.clock = V_NS16550_CLK,
+	.fcr = UART_FCR_DEFVAL,
+};
+
+U_BOOT_DEVICE(devkit8000_uart) = {
+	"ns16550_serial",
+	&devkit8000_serial
 };
 
 /*
@@ -101,7 +115,7 @@ int misc_init_r(void)
 	}
 #endif
 
-	dieid_num_r();
+	omap_die_id_display();
 
 	return 0;
 }
@@ -117,10 +131,17 @@ void set_muxconf_regs(void)
 	MUX_DEVKIT8000();
 }
 
-#if defined(CONFIG_GENERIC_MMC) && !defined(CONFIG_SPL_BUILD)
+#if defined(CONFIG_MMC)
 int board_mmc_init(bd_t *bis)
 {
 	return omap_mmc_init(0, 0, 0, -1, -1);
+}
+#endif
+
+#if defined(CONFIG_MMC)
+void board_mmc_power_init(void)
+{
+	twl4030_power_mmc_init(0);
 }
 #endif
 
@@ -137,7 +158,7 @@ int board_eth_init(bd_t *bis)
 
 #ifdef CONFIG_SPL_OS_BOOT
 /*
- * Do board specific preperation before SPL
+ * Do board specific preparation before SPL
  * Linux boot
  */
 void spl_board_prepare_for_linux(void)

@@ -11,7 +11,7 @@
 #include "config.h" // CONFIG_FLOPPY
 #include "malloc.h" // malloc_fseg
 #include "output.h" // dprintf
-#include "pci.h" // pci_to_bdf
+#include "pcidevice.h" // pci_find_class
 #include "pci_ids.h" // PCI_CLASS_BRIDGE_ISA
 #include "pic.h" // pic_eoi1
 #include "romfile.h" // romfile_loadint
@@ -613,7 +613,7 @@ floppy_format(struct disk_op_s *op)
 }
 
 int
-process_floppy_op(struct disk_op_s *op)
+floppy_process_op(struct disk_op_s *op)
 {
     if (!CONFIG_FLOPPY)
         return 0;

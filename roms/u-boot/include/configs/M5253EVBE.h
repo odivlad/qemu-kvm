@@ -8,19 +8,15 @@
 #ifndef _M5253EVBE_H
 #define _M5253EVBE_H
 
-#define CONFIG_MCF52x2		/* define processor family */
-#define CONFIG_M5253		/* define processor type */
 #define CONFIG_M5253EVBE	/* define board type */
 
 #define CONFIG_MCFTMR
 
 #define CONFIG_MCFUART
 #define CONFIG_SYS_UART_PORT		(0)
-#define CONFIG_BAUDRATE		115200
 
 #undef CONFIG_WATCHDOG		/* disable watchdog */
 
-#define CONFIG_BOOTDELAY	5
 
 /* Configuration for environment
  * Environment is embedded in u-boot in the second sector of the flash
@@ -35,6 +31,10 @@
 #define CONFIG_ENV_IS_IN_FLASH	1
 #endif
 
+#define LDS_BOARD_TEXT \
+	. = DEFINED(env_offset) ? env_offset : .; \
+	common/env_embedded.o      (.text)
+
 /*
  * BOOTP options
  */
@@ -46,20 +46,8 @@
 /*
  * Command line configuration.
  */
-#include <config_cmd_default.h>
-#define CONFIG_CMD_CACHE
-#undef CONFIG_CMD_NET
-#define CONFIG_CMD_LOADB
-#define CONFIG_CMD_LOADS
-#define CONFIG_CMD_EXT2
-#define CONFIG_CMD_FAT
-#define CONFIG_CMD_IDE
-#define CONFIG_CMD_MEMORY
-#define CONFIG_CMD_MISC
 
 /* ATA */
-#define CONFIG_DOS_PARTITION
-#define CONFIG_MAC_PARTITION
 #define CONFIG_IDE_RESET	1
 #define CONFIG_IDE_PREINIT	1
 #define CONFIG_ATAPI

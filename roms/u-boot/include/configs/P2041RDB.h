@@ -11,10 +11,6 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
-#define CONFIG_P2041RDB
-#define CONFIG_PHYS_64BIT
-#define CONFIG_PPC_P2041
-
 #ifdef CONFIG_RAMBOOT_PBL
 #define CONFIG_RAMBOOT_TEXT_BASE	CONFIG_SYS_TEXT_BASE
 #define CONFIG_RESET_VECTOR_ADDRESS	0xfffffffc
@@ -28,13 +24,9 @@
 #define CONFIG_SYS_SRIO_PCIE_BOOT_SLAVE_ADDR_PHYS \
 		(0x300000000ull | CONFIG_SYS_SRIO_PCIE_BOOT_SLAVE_ADDR)
 #define CONFIG_RESET_VECTOR_ADDRESS 0xfffffffc
-#define CONFIG_SYS_NO_FLASH
 #endif
 
 /* High Level Configuration Options */
-#define CONFIG_BOOKE
-#define CONFIG_E500			/* BOOKE e500 family */
-#define CONFIG_E500MC			/* BOOKE e500mc family */
 #define CONFIG_SYS_BOOK3E_HV		/* Category E.HV supported */
 #define CONFIG_MP			/* support multiple processors */
 
@@ -47,12 +39,10 @@
 #endif
 
 #define CONFIG_SYS_FSL_CPC		/* Corenet Platform Cache */
-#define CONFIG_SYS_NUM_CPC		CONFIG_NUM_DDR_CONTROLLERS
-#define CONFIG_FSL_ELBC			/* Has Enhanced localbus controller */
-#define CONFIG_PCI			/* Enable PCI/PCIE */
-#define CONFIG_PCIE1			/* PCIE controler 1 */
-#define CONFIG_PCIE2			/* PCIE controler 2 */
-#define CONFIG_PCIE3			/* PCIE controler 3 */
+#define CONFIG_SYS_NUM_CPC		CONFIG_SYS_NUM_DDR_CTLRS
+#define CONFIG_PCIE1			/* PCIE controller 1 */
+#define CONFIG_PCIE2			/* PCIE controller 2 */
+#define CONFIG_PCIE3			/* PCIE controller 3 */
 #define CONFIG_FSL_PCI_INIT		/* Use common FSL init code */
 #define CONFIG_SYS_PCI_64BIT		/* enable 64-bit PCI resources */
 
@@ -62,11 +52,9 @@
 #define CONFIG_SRIO_PCIE_BOOT_MASTER
 #define CONFIG_SYS_DPAA_RMAN		/* RMan */
 
-#define CONFIG_FSL_LAW			/* Use common FSL init code */
-
 #define CONFIG_ENV_OVERWRITE
 
-#ifdef CONFIG_SYS_NO_FLASH
+#ifndef CONFIG_MTD_NOR_FLASH
 #if !defined(CONFIG_RAMBOOT_PBL) && !defined(CONFIG_SRIO_PCIE_BOOT_SLAVE)
 #define CONFIG_ENV_IS_NOWHERE
 #endif
@@ -174,7 +162,6 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 #define CONFIG_CHIP_SELECTS_PER_CTRL	(4 * CONFIG_DIMM_SLOTS_PER_CTLR)
 
 #define CONFIG_DDR_SPD
-#define CONFIG_SYS_FSL_DDR3
 
 #define CONFIG_SYS_SPD_BUS_NUM	0
 #define SPD_EEPROM_ADDRESS	0x52
@@ -248,7 +235,6 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 
 #define CONFIG_SYS_NAND_BASE_LIST     {CONFIG_SYS_NAND_BASE}
 #define CONFIG_SYS_MAX_NAND_DEVICE	1
-#define CONFIG_MTD_NAND_VERIFY_WRITE
 #define CONFIG_CMD_NAND
 #define CONFIG_SYS_NAND_BLOCK_SIZE    (128 * 1024)
 
@@ -287,7 +273,6 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 #define CONFIG_SYS_FLASH_AMD_CHECK_DQ7
 #define CONFIG_SYS_FLASH_BANKS_LIST	{CONFIG_SYS_FLASH_BASE_PHYS + 0x8000000}
 
-#define CONFIG_BOARD_EARLY_INIT_F
 #define CONFIG_BOARD_EARLY_INIT_R	/* call board_early_init_r function */
 #define CONFIG_MISC_INIT_R
 
@@ -323,7 +308,6 @@ unsigned long get_board_sys_clk(unsigned long dummy);
  * shorted - index 1
  */
 #define CONFIG_CONS_INDEX	1
-#define CONFIG_SYS_NS16550
 #define CONFIG_SYS_NS16550_SERIAL
 #define CONFIG_SYS_NS16550_REG_SIZE	1
 #define CONFIG_SYS_NS16550_CLK		(get_bus_freq(0)/2)
@@ -335,18 +319,6 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 #define CONFIG_SYS_NS16550_COM2	(CONFIG_SYS_CCSRBAR+0x11C600)
 #define CONFIG_SYS_NS16550_COM3	(CONFIG_SYS_CCSRBAR+0x11D500)
 #define CONFIG_SYS_NS16550_COM4	(CONFIG_SYS_CCSRBAR+0x11D600)
-
-/* Use the HUSH parser */
-#define CONFIG_SYS_HUSH_PARSER
-
-/* pass open firmware flat tree */
-#define CONFIG_OF_LIBFDT
-#define CONFIG_OF_BOARD_SETUP
-#define CONFIG_OF_STDOUT_VIA_ALIAS
-
-/* new uImage format support */
-#define CONFIG_FIT
-#define CONFIG_FIT_VERBOSE	/* enable fit_format_{error,warning}() */
 
 /* I2C */
 #define CONFIG_SYS_I2C
@@ -381,15 +353,15 @@ unsigned long get_board_sys_clk(unsigned long dummy);
  * for slave u-boot IMAGE instored in master memory space,
  * PHYS must be aligned based on the SIZE
  */
-#define CONFIG_SRIO_PCIE_BOOT_IMAGE_MEM_PHYS 0xfef080000ull
-#define CONFIG_SRIO_PCIE_BOOT_IMAGE_MEM_BUS1 0xfff80000ull
-#define CONFIG_SRIO_PCIE_BOOT_IMAGE_SIZE 0x80000	/* 512K */
-#define CONFIG_SRIO_PCIE_BOOT_IMAGE_MEM_BUS2 0x3fff80000ull
+#define CONFIG_SRIO_PCIE_BOOT_IMAGE_MEM_PHYS 0xfef200000ull
+#define CONFIG_SRIO_PCIE_BOOT_IMAGE_MEM_BUS1 0xfff00000ull
+#define CONFIG_SRIO_PCIE_BOOT_IMAGE_SIZE 0x100000	/* 1M */
+#define CONFIG_SRIO_PCIE_BOOT_IMAGE_MEM_BUS2 0x3fff00000ull
 /*
  * for slave UCODE and ENV instored in master memory space,
  * PHYS must be aligned based on the SIZE
  */
-#define CONFIG_SRIO_PCIE_BOOT_UCODE_ENV_MEM_PHYS 0xfef040000ull
+#define CONFIG_SRIO_PCIE_BOOT_UCODE_ENV_MEM_PHYS 0xfef100000ull
 #define CONFIG_SRIO_PCIE_BOOT_UCODE_ENV_MEM_BUS 0x3ffe00000ull
 #define CONFIG_SRIO_PCIE_BOOT_UCODE_ENV_SIZE 0x40000	/* 256K */
 
@@ -409,10 +381,6 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 /*
  * eSPI - Enhanced SPI
  */
-#define CONFIG_FSL_ESPI
-#define CONFIG_SPI_FLASH
-#define CONFIG_SPI_FLASH_SPANSION
-#define CONFIG_CMD_SF
 #define CONFIG_SF_DEFAULT_SPEED         10000000
 #define CONFIG_SF_DEFAULT_MODE          0
 
@@ -488,6 +456,14 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 #define CONFIG_SYS_BMAN_MEM_PHYS	CONFIG_SYS_BMAN_MEM_BASE
 #endif
 #define CONFIG_SYS_BMAN_MEM_SIZE	0x00200000
+#define CONFIG_SYS_BMAN_SP_CENA_SIZE    0x4000
+#define CONFIG_SYS_BMAN_SP_CINH_SIZE    0x1000
+#define CONFIG_SYS_BMAN_CENA_BASE       CONFIG_SYS_BMAN_MEM_BASE
+#define CONFIG_SYS_BMAN_CENA_SIZE       (CONFIG_SYS_BMAN_MEM_SIZE >> 1)
+#define CONFIG_SYS_BMAN_CINH_BASE       (CONFIG_SYS_BMAN_MEM_BASE + \
+					CONFIG_SYS_BMAN_CENA_SIZE)
+#define CONFIG_SYS_BMAN_CINH_SIZE       (CONFIG_SYS_BMAN_MEM_SIZE >> 1)
+#define CONFIG_SYS_BMAN_SWP_ISDR_REG	0xE08
 #define CONFIG_SYS_QMAN_NUM_PORTALS	10
 #define CONFIG_SYS_QMAN_MEM_BASE	0xf4200000
 #ifdef CONFIG_PHYS_64BIT
@@ -496,6 +472,14 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 #define CONFIG_SYS_QMAN_MEM_PHYS	CONFIG_SYS_QMAN_MEM_BASE
 #endif
 #define CONFIG_SYS_QMAN_MEM_SIZE	0x00200000
+#define CONFIG_SYS_QMAN_SP_CENA_SIZE    0x4000
+#define CONFIG_SYS_QMAN_SP_CINH_SIZE    0x1000
+#define CONFIG_SYS_QMAN_CENA_BASE       CONFIG_SYS_QMAN_MEM_BASE
+#define CONFIG_SYS_QMAN_CENA_SIZE       (CONFIG_SYS_QMAN_MEM_SIZE >> 1)
+#define CONFIG_SYS_QMAN_CINH_BASE       (CONFIG_SYS_QMAN_MEM_BASE + \
+					CONFIG_SYS_QMAN_CENA_SIZE)
+#define CONFIG_SYS_QMAN_CINH_SIZE       (CONFIG_SYS_QMAN_MEM_SIZE >> 1)
+#define CONFIG_SYS_QMAN_SWP_ISDR_REG	0xE08
 
 #define CONFIG_SYS_DPAA_FMAN
 #define CONFIG_SYS_DPAA_PME
@@ -544,11 +528,8 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 
 #ifdef CONFIG_PCI
 #define CONFIG_PCI_INDIRECT_BRIDGE
-#define CONFIG_PCI_PNP			/* do pci plug-and-play */
-#define CONFIG_E1000
 
 #define CONFIG_PCI_SCAN_SHOW		/* show pci devices on startup */
-#define CONFIG_DOS_PARTITION
 #endif	/* CONFIG_PCI */
 
 /* SATA */
@@ -568,8 +549,6 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 
 #define CONFIG_LBA48
 #define CONFIG_CMD_SATA
-#define CONFIG_DOS_PARTITION
-#define CONFIG_CMD_EXT2
 #endif
 
 #ifdef CONFIG_FMAN_ENET
@@ -601,21 +580,9 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 /*
  * Command line configuration.
  */
-#include <config_cmd_default.h>
-
-#define CONFIG_CMD_DHCP
-#define CONFIG_CMD_ELF
-#define CONFIG_CMD_ERRATA
-#define CONFIG_CMD_GREPENV
-#define CONFIG_CMD_IRQ
-#define CONFIG_CMD_I2C
-#define CONFIG_CMD_MII
-#define CONFIG_CMD_PING
-#define CONFIG_CMD_SETEXPR
 
 #ifdef CONFIG_PCI
 #define CONFIG_CMD_PCI
-#define CONFIG_CMD_NET
 #endif
 
 /*
@@ -625,26 +592,14 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 #define CONFIG_HAS_FSL_MPH_USB
 
 #if defined(CONFIG_HAS_FSL_DR_USB) || defined(CONFIG_HAS_FSL_MPH_USB)
-#define CONFIG_CMD_USB
-#define CONFIG_USB_STORAGE
-#define CONFIG_USB_EHCI
 #define CONFIG_USB_EHCI_FSL
 #define CONFIG_EHCI_HCD_INIT_AFTER_RESET
 #endif
-
-#define CONFIG_CMD_EXT2
-
-#define CONFIG_MMC
 
 #ifdef CONFIG_MMC
 #define CONFIG_FSL_ESDHC
 #define CONFIG_SYS_FSL_ESDHC_ADDR       CONFIG_SYS_MPC85xx_ESDHC_ADDR
 #define CONFIG_SYS_FSL_ESDHC_BROKEN_TIMEOUT
-#define CONFIG_CMD_MMC
-#define CONFIG_GENERIC_MMC
-#define CONFIG_CMD_EXT2
-#define CONFIG_CMD_FAT
-#define CONFIG_DOS_PARTITION
 #endif
 
 /*
@@ -688,10 +643,6 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 /* default location for tftp and bootm */
 #define CONFIG_LOADADDR		1000000
 
-#define CONFIG_BOOTDELAY	10	/* -1 disables auto-boot */
-
-#define CONFIG_BAUDRATE	115200
-
 #define __USB_PHY_TYPE	utmi
 
 #define	CONFIG_EXTRA_ENV_SETTINGS				\
@@ -711,10 +662,9 @@ unsigned long get_board_sys_clk(unsigned long dummy);
 	"usb_dr_mode=host\0"					\
 	"ramdiskaddr=2000000\0"					\
 	"ramdiskfile=p2041rdb/ramdisk.uboot\0"			\
-	"fdtaddr=c00000\0"					\
+	"fdtaddr=1e00000\0"					\
 	"fdtfile=p2041rdb/p2041rdb.dtb\0"			\
-	"bdev=sda3\0"						\
-	"c=ffe\0"
+	"bdev=sda3\0"
 
 #define CONFIG_HDBOOT					\
 	"setenv bootargs root=/dev/$bdev rw "		\

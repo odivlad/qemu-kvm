@@ -20,7 +20,9 @@
 *.bin
 *.patch
 *.cfgtmp
-*.dts.tmp
+
+# host programs on Cygwin
+*.exe
 
 # Build tree
 /build-*
@@ -29,9 +31,10 @@
 # Top-level generic files
 #
 /MLO*
-/SPL
+/SPL*
 /System.map
 /u-boot*
+/boards.cfg
 
 #
 # git files that we don't want to ignore even it they are dot-files
@@ -42,22 +45,16 @@
 #
 # Generated files
 #
-
 /LOG
-/errlog
-/reloc_off
-
-/spl/*
-!/spl/Makefile
+/spl/
 /tpl/
+/defconfig
 
 #
 # Generated include files
 #
 /include/config/
 /include/generated/
-/include/spl-autoconf.mk
-/include/tpl-autoconf.mk
 
 # stgit generated dirs
 patches-*

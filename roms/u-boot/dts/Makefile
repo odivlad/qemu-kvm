@@ -12,17 +12,25 @@ ifeq ($(DEVICE_TREE),)
 DEVICE_TREE := unset
 endif
 
-DTB := arch/$(ARCH)/dts/$(DEVICE_TREE).dtb
+ARCH_PATH := arch/$(ARCH)/dts
+dtb_depends := arch-dtbs
 
-quiet_cmd_copy = COPY    $@
-      cmd_copy = cp $< $@
+ifneq ($(EXT_DTB),)
+DTB := $(EXT_DTB)
+else
+DTB := $(ARCH_PATH)/$(DEVICE_TREE).dtb
+dtb_depends += $(DTB:.dtb=.dts)
+endif
 
 $(obj)/dt.dtb: $(DTB) FORCE
-	$(call if_changed,copy)
+	$(call if_changed,shipped)
 
 targets += dt.dtb
 
-$(DTB): arch-dtbs
+$(DTB): $(dtb_depends)
+ifeq ($(EXT_DTB),)
+	$(Q)$(MAKE) $(build)=$(ARCH_PATH) $@
+endif
 	$(Q)test -e $@ || (						\
 	echo >&2;							\
 	echo >&2 "Device Tree Source is not correctly specified.";	\
@@ -32,7 +40,7 @@ $(DTB): arch-dtbs
 	/bin/false)
 
 arch-dtbs:
-	$(Q)$(MAKE) $(build)=arch/$(ARCH)/dts dtbs
+	$(Q)$(MAKE) $(build)=$(ARCH_PATH) dtbs
 
 .SECONDARY: $(obj)/dt.dtb.S
 
@@ -44,4 +52,4 @@ dtbs: $(obj)/dt.dtb
 clean-files := dt.dtb.S
 
 # Let clean descend into dts directories
-subdir- += ../arch/arm/dts ../arch/microblaze/dts ../arch/sandbox/dts ../arch/x86/dts
+subdir- += ../arch/arm/dts ../arch/microblaze/dts ../arch/mips/dts ../arch/sandbox/dts ../arch/x86/dts

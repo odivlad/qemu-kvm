@@ -17,9 +17,10 @@
 #include "fw/paravirt.h" // runningOnQEMU
 #include "malloc.h" // free
 #include "output.h" // dprintf
-#include "pci.h" // foreachpci
+#include "pcidevice.h" // foreachpci
 #include "pci_ids.h" // PCI_DEVICE_ID
 #include "pci_regs.h" // PCI_VENDOR_ID
+#include "stacks.h" // run_thread
 #include "std/disk.h" // DISK_RET_SUCCESS
 #include "string.h" // memset
 #include "util.h" // usleep
@@ -76,10 +77,19 @@ esp_scsi_dma(u32 iobase, u32 buf, u32 len, int read)
     outb(read ? 0x83 : 0x03, iobase + ESP_DMA_CMD);
 }
 
-static int
-esp_scsi_cmd(struct esp_lun_s *llun_gf, struct disk_op_s *op,
-             u8 *cdbcmd, u16 target, u16 lun, u16 blocksize)
+int
+esp_scsi_process_op(struct disk_op_s *op)
 {
+    if (!CONFIG_ESP_SCSI)
+        return DISK_RET_EBADTRACK;
+    struct esp_lun_s *llun_gf =
+        container_of(op->drive_gf, struct esp_lun_s, drive);
+    u16 target = GET_GLOBALFLAT(llun_gf->target);
+    u16 lun = GET_GLOBALFLAT(llun_gf->lun);
+    u8 cdbcmd[16];
+    int blocksize = scsi_fill_cmd(op, cdbcmd, sizeof(cdbcmd));
+    if (blocksize < 0)
+        return default_process_op(op);
     u32 iobase = GET_GLOBALFLAT(llun_gf->iobase);
     int i, state;
     u8 status;
@@ -113,8 +123,7 @@ esp_scsi_cmd(struct esp_lun_s *llun_gf, struct disk_op_s *op,
             if (op->count && blocksize) {
                 /* Data phase.  */
                 u32 count = (u32)op->count * blocksize;
-                esp_scsi_dma(iobase, (u32)op->buf_fl, count,
-                             cdb_is_read(cdbcmd, blocksize));
+                esp_scsi_dma(iobase, (u32)op->buf_fl, count, scsi_is_read(op));
                 outb(ESP_CMD_TI | ESP_CMD_DMA, iobase + ESP_CMD);
                 continue;
             }
@@ -144,21 +153,6 @@ esp_scsi_cmd(struct esp_lun_s *llun_gf, struct disk_op_s *op,
     return DISK_RET_EBADTRACK;
 }
 
-int
-esp_scsi_cmd_data(struct disk_op_s *op, void *cdbcmd, u16 blocksize)
-{
-    if (!CONFIG_ESP_SCSI)
-        return DISK_RET_EBADTRACK;
-
-    struct esp_lun_s *llun_gf =
-        container_of(op->drive_gf, struct esp_lun_s, drive);
-
-    return esp_scsi_cmd(llun_gf, op, cdbcmd,
-                        GET_GLOBALFLAT(llun_gf->target),
-                        GET_GLOBALFLAT(llun_gf->lun),
-                        blocksize);
-}
-
 static int
 esp_scsi_add_lun(struct pci_device *pci, u32 iobase, u8 target, u8 lun)
 {
@@ -175,9 +169,7 @@ esp_scsi_add_lun(struct pci_device *pci, u32 iobase, u8 target, u8 lun)
     llun->lun = lun;
     llun->iobase = iobase;
 
-    char *name = znprintf(16, "esp %02x:%02x.%x %d:%d",
-                          pci_bdf_to_bus(pci->bdf), pci_bdf_to_dev(pci->bdf),
-                          pci_bdf_to_fn(pci->bdf), target, lun);
+    char *name = znprintf(MAXDESCSIZE, "esp %pP %d:%d", pci, target, lun);
     int prio = bootprio_find_scsi_device(pci, target, lun);
     int ret = scsi_drive_setup(&llun->drive, name, prio);
     free(name);
@@ -197,17 +189,15 @@ esp_scsi_scan_target(struct pci_device *pci, u32 iobase, u8 target)
 }
 
 static void
-init_esp_scsi(struct pci_device *pci)
+init_esp_scsi(void *data)
 {
-    u16 bdf = pci->bdf;
-    u32 iobase = pci_config_readl(pci->bdf, PCI_BASE_ADDRESS_0)
-        & PCI_BASE_ADDRESS_IO_MASK;
+    struct pci_device *pci = data;
+    u32 iobase = pci_enable_iobar(pci, PCI_BASE_ADDRESS_0);
+    if (!iobase)
+        return;
+    pci_enable_busmaster(pci);
 
-    dprintf(1, "found esp at %02x:%02x.%x, io @ %x\n",
-            pci_bdf_to_bus(bdf), pci_bdf_to_dev(bdf),
-            pci_bdf_to_fn(bdf), iobase);
-
-    pci_config_maskw(bdf, PCI_COMMAND, 0, PCI_COMMAND_MASTER);
+    dprintf(1, "found esp at %pP, io @ %x\n", pci, iobase);
 
     // reset
     outb(ESP_CMD_RESET, iobase + ESP_CMD);
@@ -215,8 +205,6 @@ init_esp_scsi(struct pci_device *pci)
     int i;
     for (i = 0; i <= 7; i++)
         esp_scsi_scan_target(pci, iobase, i);
-
-    return;
 }
 
 void
@@ -233,6 +221,6 @@ esp_scsi_setup(void)
         if (pci->vendor != PCI_VENDOR_ID_AMD
             || pci->device != PCI_DEVICE_ID_AMD_SCSI)
             continue;
-        init_esp_scsi(pci);
+        run_thread(init_esp_scsi, pci);
     }
 }

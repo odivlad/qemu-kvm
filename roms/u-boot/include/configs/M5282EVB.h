@@ -17,14 +17,10 @@
  * High Level Configuration Options
  * (easy to change)
  */
-#define	CONFIG_MCF52x2		/* define processor family */
-#define CONFIG_M5282		/* define processor type */
-
 #define CONFIG_MCFTMR
 
 #define CONFIG_MCFUART
 #define CONFIG_SYS_UART_PORT		(0)
-#define CONFIG_BAUDRATE		115200
 
 #undef	CONFIG_MONITOR_IS_IN_RAM	/* define if monitor is started from a pre-loader */
 
@@ -34,6 +30,10 @@
 #define CONFIG_ENV_ADDR		0xffe04000
 #define CONFIG_ENV_SIZE		0x2000
 #define CONFIG_ENV_IS_IN_FLASH	1
+
+#define LDS_BOARD_TEXT \
+	. = DEFINED(env_offset) ? env_offset : .; \
+	common/env_embedded.o (.text*);
 
 /*
  * BOOTP options
@@ -46,14 +46,6 @@
 /*
  * Command line configuration.
  */
-#include <config_cmd_default.h>
-#define CONFIG_CMD_CACHE
-#define CONFIG_CMD_NET
-#define CONFIG_CMD_PING
-#define CONFIG_CMD_MII
-
-#undef CONFIG_CMD_LOADS
-#undef CONFIG_CMD_LOADB
 
 #define CONFIG_MCFFEC
 #ifdef CONFIG_MCFFEC
@@ -77,14 +69,11 @@
 #	endif			/* CONFIG_SYS_DISCOVER_PHY */
 #endif
 
-#define CONFIG_BOOTDELAY	5
 #ifdef CONFIG_MCFFEC
-#	define CONFIG_ETHADDR	00:e0:0c:bc:e5:60
 #	define CONFIG_IPADDR	192.162.1.2
 #	define CONFIG_NETMASK	255.255.255.0
 #	define CONFIG_SERVERIP	192.162.1.1
 #	define CONFIG_GATEWAYIP	192.162.1.1
-#	define CONFIG_OVERWRITE_ETHADDR_ONCE
 #endif				/* CONFIG_MCFFEC */
 
 #define CONFIG_HOSTNAME		M5282EVB
@@ -100,7 +89,6 @@
 	"save\0"				\
 	""
 
-#define CONFIG_SYS_PROMPT		"-> "
 #define	CONFIG_SYS_LONGHELP		/* undef to save memory         */
 
 #if defined(CONFIG_CMD_KGDB)

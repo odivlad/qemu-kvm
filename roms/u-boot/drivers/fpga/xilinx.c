@@ -24,7 +24,8 @@ static int xilinx_validate(xilinx_desc *desc, char *fn);
 
 /* ------------------------------------------------------------------------- */
 
-int fpga_loadbitstream(int devnum, char *fpgadata, size_t size)
+int fpga_loadbitstream(int devnum, char *fpgadata, size_t size,
+		       bitstream_type bstype)
 {
 	unsigned int length;
 	unsigned int swapsize;
@@ -74,8 +75,8 @@ int fpga_loadbitstream(int devnum, char *fpgadata, size_t size)
 		buffer[i] = *dataptr++;
 
 	if (xdesc->name) {
-		i = strncmp(buffer, xdesc->name, strlen(xdesc->name));
-		if (i) {
+		i = (ulong)strstr(buffer, xdesc->name);
+		if (!i) {
 			printf("%s: Wrong bitstream ID for this device\n",
 			       __func__);
 			printf("%s: Bitstream ID %s, current device ID %d/%s\n",
@@ -127,23 +128,52 @@ int fpga_loadbitstream(int devnum, char *fpgadata, size_t size)
 	dataptr += 4;
 	printf("  bytes in bitstream = %d\n", swapsize);
 
-	return fpga_load(devnum, dataptr, swapsize);
+	return fpga_load(devnum, dataptr, swapsize, bstype);
 }
 
-int xilinx_load(xilinx_desc *desc, const void *buf, size_t bsize)
+int xilinx_load(xilinx_desc *desc, const void *buf, size_t bsize,
+		bitstream_type bstype)
 {
 	if (!xilinx_validate (desc, (char *)__FUNCTION__)) {
 		printf ("%s: Invalid device descriptor\n", __FUNCTION__);
 		return FPGA_FAIL;
 	}
 
-	return desc->operations->load(desc, buf, bsize);
+	if (!desc->operations || !desc->operations->load) {
+		printf("%s: Missing load operation\n", __func__);
+		return FPGA_FAIL;
+	}
+
+	return desc->operations->load(desc, buf, bsize, bstype);
 }
+
+#if defined(CONFIG_CMD_FPGA_LOADFS)
+int xilinx_loadfs(xilinx_desc *desc, const void *buf, size_t bsize,
+		   fpga_fs_info *fpga_fsinfo)
+{
+	if (!xilinx_validate(desc, (char *)__func__)) {
+		printf("%s: Invalid device descriptor\n", __func__);
+		return FPGA_FAIL;
+	}
+
+	if (!desc->operations || !desc->operations->loadfs) {
+		printf("%s: Missing loadfs operation\n", __func__);
+		return FPGA_FAIL;
+	}
+
+	return desc->operations->loadfs(desc, buf, bsize, fpga_fsinfo);
+}
+#endif
 
 int xilinx_dump(xilinx_desc *desc, const void *buf, size_t bsize)
 {
 	if (!xilinx_validate (desc, (char *)__FUNCTION__)) {
 		printf ("%s: Invalid device descriptor\n", __FUNCTION__);
+		return FPGA_FAIL;
+	}
+
+	if (!desc->operations || !desc->operations->dump) {
+		printf("%s: Missing dump operation\n", __func__);
 		return FPGA_FAIL;
 	}
 
@@ -168,6 +198,9 @@ int xilinx_info(xilinx_desc *desc)
 			break;
 		case xilinx_zynq:
 			printf("Zynq PL\n");
+			break;
+		case xilinx_zynqmp:
+			printf("ZynqMP PL\n");
 			break;
 			/* Add new family types here */
 		default:
@@ -197,22 +230,27 @@ int xilinx_info(xilinx_desc *desc)
 		case devcfg:
 			printf("Device configuration interface (Zynq)\n");
 			break;
+		case csu_dma:
+			printf("csu_dma configuration interface (ZynqMP)\n");
+			break;
 			/* Add new interface types here */
 		default:
 			printf ("Unsupported interface type, %d\n", desc->iface);
 		}
 
-		printf ("Device Size:   \t%d bytes\n"
-				"Cookie:        \t0x%x (%d)\n",
-				desc->size, desc->cookie, desc->cookie);
+		printf("Device Size:   \t%zd bytes\n"
+		       "Cookie:        \t0x%x (%d)\n",
+		       desc->size, desc->cookie, desc->cookie);
 		if (desc->name)
 			printf("Device name:   \t%s\n", desc->name);
 
-		if (desc->iface_fns) {
+		if (desc->iface_fns)
 			printf ("Device Function Table @ 0x%p\n", desc->iface_fns);
-			desc->operations->info(desc);
-		} else
+		else
 			printf ("No Device Function Table.\n");
+
+		if (desc->operations && desc->operations->info)
+			desc->operations->info(desc);
 
 		ret_val = FPGA_SUCCESS;
 	} else {

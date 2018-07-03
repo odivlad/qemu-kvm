@@ -25,19 +25,18 @@
 #include <fcntl.h>
 #include <stdint.h>
 
-#include <fdt.h>
 #include <libfdt.h>
-#include <libfdt_env.h>
 
 #include "testdata.h"
 
-struct {
+static struct {
 	void *blob;
 	const char *filename;
 } trees[] = {
 #define TREE(name)	{ &_##name, #name ".dtb" }
 	TREE(test_tree1),
 	TREE(bad_node_char), TREE(bad_node_format), TREE(bad_prop_char),
+	TREE(ovf_size_strings),
 };
 
 #define NUM_TREES	(sizeof(trees) / sizeof(trees[0]))

@@ -181,17 +181,13 @@ defer go ( -- )
       \ with watchdog timeout.
       4ec set-watchdog
    THEN
+   2dup " HALT" str= IF 2drop 0 EXIT THEN
    my-self >r current-node @ >r         \ Save my-self
    ." Trying to load: " $bootargs type ."  from: " 2dup type ."  ... "
    2dup open-dev dup IF
       dup to my-self
       dup ihandle>phandle set-node
       -rot                              ( ihandle devstr len )
-      my-args nip 0= IF
-	 2dup 1- + c@ [char] : <> IF    \ Add : to device path if missing
-	    1+ strdup 2dup 1- + [char] : swap c!
-	 THEN
-      THEN
       encode-string s" bootpath" set-chosen
       $bootargs encode-string s" bootargs" set-chosen
       get-load-base s" load" 3 pick ['] $call-method CATCH IF
@@ -211,7 +207,7 @@ defer go ( -- )
 
 : parse-load ( "{devlist}" -- success )	\ Parse-execute boot-device list
    cr BEGIN parse-word dup WHILE
-	 ( de-alias ) do-load dup 0< IF drop 0 THEN IF
+	 de-alias do-load dup 0< IF drop 0 THEN IF
 	    state-valid @ IF ."   Successfully loaded" cr THEN
 	    true 0d parse strdup load-list 2! EXIT
 	 THEN
@@ -272,29 +268,6 @@ read-bootlist
    BEGIN load-next WHILE
       disable-watchdog (go-and-catch)
    REPEAT
-
-   \ When we return from boot print the banner again.
-   .banner
 ;
 
 : load load 0= IF -65 boot-exception-handler THEN ;
-
-\ \\\\ Temporary hacks for backwards compatibility
-: yaboot ." Use 'boot disk' instead " ;
-
-: netboot ( -- rc ) ." Use 'boot net' instead " ;
-
-: netboot-arg ( arg-string -- rc )
-   s" boot net " 2swap $cat (parse-line) $cat
-   evaluate
-;
-
-: netload ( -- rc ) (parse-line)
-   load-base-override >r flash-load-base to load-base-override
-   s" load net:" strdup 2swap $cat strdup evaluate
-   r> to load-base-override
-   load-size
-;
-
-: neteval ( -- ) FLASH-LOAD-BASE netload evaluate ;
-

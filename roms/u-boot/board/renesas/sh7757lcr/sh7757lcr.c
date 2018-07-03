@@ -9,6 +9,7 @@
 #include <asm/processor.h>
 #include <asm/io.h>
 #include <asm/mmc.h>
+#include <spi.h>
 #include <spi_flash.h>
 
 int checkboard(void)
@@ -219,31 +220,6 @@ int board_init(void)
 
 	init_gctrl();
 	init_usb_phy();
-
-	return 0;
-}
-
-int dram_init(void)
-{
-	DECLARE_GLOBAL_DATA_PTR;
-
-	gd->bd->bi_memstart = CONFIG_SYS_SDRAM_BASE;
-	gd->bd->bi_memsize = CONFIG_SYS_SDRAM_SIZE;
-	printf("DRAM:  %dMB\n", CONFIG_SYS_SDRAM_SIZE / (1024 * 1024));
-	printf("    Physical address\n");
-	printf("    0x%08x - 0x%08x : Accessible Space as ECC Area\n",
-		SH7757LCR_SDRAM_PHYS_TOP,
-		SH7757LCR_SDRAM_PHYS_TOP + SH7757LCR_SDRAM_SIZE - 1);
-	printf("    0x%08x - 0x%08x : No Access Area\n",
-		SH7757LCR_SDRAM_PHYS_TOP + SH7757LCR_SDRAM_SIZE,
-		SH7757LCR_SDRAM_PHYS_TOP + SH7757LCR_SDRAM_SIZE * 2 - 1);
-	printf("    0x%08x - 0x%08x : Non-ECC Area for DVC/AVC\n",
-		SH7757LCR_SDRAM_PHYS_TOP + SH7757LCR_SDRAM_ECC_SETTING * 2,
-		SH7757LCR_SDRAM_PHYS_TOP + SH7757LCR_SDRAM_ECC_SETTING * 2 +
-			SH7757LCR_SDRAM_DVC_SIZE - 1);
-	printf("    0x%08x - 0x%08x : Non-ECC Area for G200eR2\n",
-		SH7757LCR_SDRAM_PHYS_TOP + SH7757LCR_GRA_OFFSET,
-		SH7757LCR_SDRAM_PHYS_TOP + SH7757LCR_GRA_OFFSET + 0x00ffffff);
 
 	return 0;
 }

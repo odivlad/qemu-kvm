@@ -24,7 +24,6 @@
 #include <limits.h>
 #include <stdint.h>
 
-#include <fdt.h>
 #include <libfdt.h>
 
 #include "tests.h"
@@ -46,7 +45,7 @@ static int nopulate_struct(char *buf, const char *fdt)
 		       nextoffset - offset);
 		p += nextoffset - offset;
 
-		*((uint32_t *)p) = cpu_to_fdt32(FDT_NOP);
+		*((fdt32_t *)p) = cpu_to_fdt32(FDT_NOP);
 		p += FDT_TAGSIZE;
 
 	} while (tag != FDT_END);

@@ -17,9 +17,52 @@ The set of KVM kernel module trace events may be specific to the kernel version
 or architecture.  It is best to check the KVM kernel module source code for the
 meaning of events.
 
-Note that trace events are counted globally across all running guests.
+Use batch and logging modes for scripting purposes.
+
+@section Interactive Commands
+
+While running in regular (interactive) mode, use any of the following keys:
+
+@table @key
+@item b
+@kindex b
+toggle events by guests (debugfs only, honors filters)
+@item c
+@kindex c
+clear filter
+@item f
+@kindex f
+filter by regular expression
+@item g
+@kindex g
+filter by guest name
+@item h
+@kindex h
+display interactive commands reference
+@item o
+@kindex o
+toggle sorting order (Total vs CurAvg/s)
+@item p
+@kindex p
+filter by PID
+@item q
+@kindex q
+quit
+@item r
+@kindex r
+reset stats
+@item s
+@kindex s
+set update interval
+@item x
+@kindex x
+toggle reporting of stats for child trace events
+@end table
+
+Press any other key to refresh statistics immediately.
 
 @c man end
+
 
 @c man begin OPTIONS
 @table @option
@@ -31,6 +74,12 @@ Note that trace events are counted globally across all running guests.
   retrieve statistics from tracepoints
 @item -d, --debugfs
   retrieve statistics from debugfs
+@item -p, --pid=@var{pid}
+  limit statistics to one virtual machine (pid)
+@item -i, --debugfs-include-past
+  include all available data on past events for debugfs
+@item -g, --guest=@var{guest_name}
+  limit statistics to one virtual machine (guest name)
 @item -f, --fields=@var{fields}
   fields to display (regex)
 @item -h, --help

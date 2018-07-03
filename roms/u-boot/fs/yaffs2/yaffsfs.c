@@ -3018,7 +3018,7 @@ int yaffs_symlink(const YCHAR *oldpath, const YCHAR *newpath)
 		yaffsfs_SetError(-ENFILE);
 	else if (parent->my_dev->read_only)
 		yaffsfs_SetError(-EROFS);
-	else if (parent) {
+	else {
 		obj = yaffs_create_symlink(parent, name, mode, 0, 0, oldpath);
 		if (obj)
 			retVal = 0;
@@ -3136,10 +3136,6 @@ int yaffs_link(const YCHAR *oldpath, const YCHAR *linkpath)
 
 int yaffs_mknod(const YCHAR *pathname, mode_t mode, dev_t dev)
 {
-	pathname = pathname;
-	mode = mode;
-	dev = dev;
-
 	yaffsfs_SetError(-EINVAL);
 	return -1;
 }
@@ -3187,9 +3183,7 @@ int yaffs_set_error(int error)
 
 int yaffs_dump_dev(const YCHAR *path)
 {
-#if 1
-	path = path;
-#else
+#if 0
 	YCHAR *rest;
 
 	struct yaffs_obj *obj = yaffsfs_FindRoot(path, &rest);

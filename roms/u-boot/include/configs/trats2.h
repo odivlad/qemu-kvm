@@ -11,12 +11,7 @@
 #ifndef __CONFIG_TRATS2_H
 #define __CONFIG_TRATS2_H
 
-#include <configs/exynos4-dt.h>
-
-#define CONFIG_SYS_PROMPT	"Trats2 # "	/* Monitor Command Prompt */
-
-#undef CONFIG_DEFAULT_DEVICE_TREE
-#define CONFIG_DEFAULT_DEVICE_TREE	exynos4412-trats2
+#include <configs/exynos4-common.h>
 
 #define CONFIG_TIZEN			/* TIZEN lib */
 
@@ -38,21 +33,14 @@
 
 #define CONFIG_SYS_TEXT_BASE		0x43e00000
 
-#include <linux/sizes.h>
-/* Size of malloc() pool */
-#define CONFIG_SYS_MALLOC_LEN		(CONFIG_ENV_SIZE + (80 * SZ_1M))
-
 /* select serial console configuration */
 #define CONFIG_SERIAL2
-#define CONFIG_BAUDRATE			115200
 
 /* Console configuration */
-#define CONFIG_SYS_CONSOLE_INFO_QUIET
-#define CONFIG_SYS_CONSOLE_IS_IN_ENV
 
 #define CONFIG_BOOTARGS			"Please use defined boot"
-#define CONFIG_BOOTCOMMAND		"run mmcboot"
-#define CONFIG_DEFAULT_CONSOLE		"console=ttySAC1,115200n8\0"
+#define CONFIG_BOOTCOMMAND		"run autoboot"
+#define CONFIG_DEFAULT_CONSOLE		"console=ttySAC2,115200n8\0"
 
 #define CONFIG_SYS_INIT_SP_ADDR	(CONFIG_SYS_LOAD_ADDR \
 					- GENERATED_GBL_DATA_SIZE)
@@ -92,9 +80,9 @@
 
 #define CONFIG_DFU_ALT \
 	"u-boot raw 0x80 0x800;" \
-	"uImage ext4 0 2;" \
-	"modem.bin ext4 0 2;" \
-	"exynos4412-trats2.dtb ext4 0 2;" \
+	"/uImage ext4 0 2;" \
+	"/modem.bin ext4 0 2;" \
+	"/exynos4412-trats2.dtb ext4 0 2;" \
 	""PARTS_CSA" part 0 1;" \
 	""PARTS_BOOT" part 0 2;" \
 	""PARTS_QBOOT" part 0 3;" \
@@ -102,7 +90,8 @@
 	""PARTS_ROOT" part 0 5;" \
 	""PARTS_DATA" part 0 6;" \
 	""PARTS_UMS" part 0 7;" \
-	"params.bin raw 0x38 0x8\0"
+	"params.bin raw 0x38 0x8;" \
+	"/Image.itb ext4 0 2\0"
 
 #define CONFIG_EXTRA_ENV_SETTINGS \
 	"bootk=" \
@@ -111,16 +100,11 @@
 			"bootm 0x40007FC0 - ${fdtaddr};" \
 		"fi;" \
 		"bootm 0x40007FC0;\0" \
-	"updatemmc=" \
-		"mmc boot 0 1 1 1; mmc write 0x42008000 0 0x200;" \
-		"mmc boot 0 1 1 0\0" \
 	"updatebackup=" \
-		"mmc boot 0 1 1 2; mmc write 0x42100000 0 0x200;" \
-		" mmc boot 0 1 1 0\0" \
+		"mmc dev 0 2; mmc write 0x51000000 0 0x800;" \
+		" mmc dev 0 0\0" \
 	"updatebootb=" \
-		"mmc read 0x51000000 0x80 0x200; run updatebackup\0" \
-	"updateuboot=" \
-		"mmc write 0x50000000 0x80 0x400\0" \
+		"mmc read 0x51000000 0x80 0x800; run updatebackup\0" \
 	"mmcboot=" \
 		"setenv bootargs root=/dev/mmcblk${mmcdev}p${mmcrootpart} " \
 		"${lpj} rootwait ${console} ${meminfo} ${opts} ${lcdinfo}; " \
@@ -164,45 +148,11 @@
 		   "setenv spl_imgsize;" \
 		   "setenv spl_imgaddr;" \
 		   "setenv spl_addr_tmp;\0" \
+	CONFIG_EXTRA_ENV_ITB \
 	"fdtaddr=40800000\0" \
 
 /* GPT */
 #define CONFIG_RANDOM_UUID
-
-/* I2C */
-#include <asm/arch/gpio.h>
-
-#define CONFIG_CMD_I2C
-
-#define CONFIG_SYS_I2C
-#define CONFIG_SYS_I2C_S3C24X0
-#define CONFIG_SYS_I2C_S3C24X0_SPEED	100000
-#define CONFIG_SYS_I2C_S3C24X0_SLAVE	0
-#define CONFIG_MAX_I2C_NUM		8
-#define CONFIG_SYS_I2C_SOFT
-#define CONFIG_SYS_I2C_SOFT_SPEED	50000
-#define CONFIG_SYS_I2C_SOFT_SLAVE	0x00
-#define I2C_SOFT_DECLARATIONS2
-#define CONFIG_SYS_I2C_SOFT_SPEED_2     50000
-#define CONFIG_SYS_I2C_SOFT_SLAVE_2     0x00
-#define CONFIG_SOFT_I2C_READ_REPEATED_START
-#define CONFIG_SYS_I2C_INIT_BOARD
-
-#ifndef __ASSEMBLY__
-int get_soft_i2c_scl_pin(void);
-int get_soft_i2c_sda_pin(void);
-#endif
-#define CONFIG_SOFT_I2C_GPIO_SCL	get_soft_i2c_scl_pin()
-#define CONFIG_SOFT_I2C_GPIO_SDA	get_soft_i2c_sda_pin()
-
-/* POWER */
-#define CONFIG_POWER
-#define CONFIG_POWER_I2C
-#define CONFIG_POWER_MAX77686
-#define CONFIG_POWER_PMIC_MAX77693
-#define CONFIG_POWER_MUIC_MAX77693
-#define CONFIG_POWER_FG_MAX77693
-#define CONFIG_POWER_BATTERY_TRATS2
 
 /* Security subsystem - enable hw_rand() */
 #define CONFIG_EXYNOS_ACE_SHA
@@ -219,7 +169,6 @@ int get_soft_i2c_sda_pin(void);
 
 /* Download menu - definitions for check keys */
 #ifndef __ASSEMBLY__
-#include <power/max77686_pmic.h>
 
 #define KEY_PWR_PMIC_NAME		"MAX77686_PMIC"
 #define KEY_PWR_STATUS_REG		MAX77686_REG_PMIC_STATUS1
@@ -227,26 +176,18 @@ int get_soft_i2c_sda_pin(void);
 #define KEY_PWR_INTERRUPT_REG		MAX77686_REG_PMIC_INT1
 #define KEY_PWR_INTERRUPT_MASK		(1 << 1)
 
-#define KEY_VOL_UP_GPIO			exynos4x12_gpio_get(2, x2, 2)
-#define KEY_VOL_DOWN_GPIO		exynos4x12_gpio_get(2, x3, 3)
+#define KEY_VOL_UP_GPIO			EXYNOS4X12_GPIO_X22
+#define KEY_VOL_DOWN_GPIO		EXYNOS4X12_GPIO_X33
 #endif /* __ASSEMBLY__ */
 
 /* LCD console */
 #define LCD_BPP                 LCD_COLOR16
-#define CONFIG_SYS_WHITE_ON_BLACK
 
 /* LCD */
-#define CONFIG_EXYNOS_FB
-#define CONFIG_LCD
-#define CONFIG_CMD_BMP
 #define CONFIG_BMP_16BPP
 #define CONFIG_FB_ADDR		0x52504000
-#define CONFIG_S6E8AX0
 #define CONFIG_EXYNOS_MIPI_DSIM
 #define CONFIG_VIDEO_BMP_GZIP
 #define CONFIG_SYS_VIDEO_LOGO_MAX_SIZE ((500 * 160 * 4) + 54)
-
-#define LCD_XRES	720
-#define LCD_YRES	1280
 
 #endif	/* __CONFIG_H */

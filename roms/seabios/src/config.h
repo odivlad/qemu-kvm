@@ -22,6 +22,8 @@
 #define BUILD_MAX_EXTDRIVE 16
 // Number of bytes the smbios may be and still live in the f-segment
 #define BUILD_MAX_SMBIOS_FSEG     600
+// Maximum number of bytes the mptable may be and still be copied to f-segment
+#define BUILD_MAX_MPTABLE_FSEG    600
 
 #define BUILD_MODEL_ID      0xFC
 #define BUILD_SUBMODEL_ID   0x00
@@ -37,8 +39,6 @@
 #define BUILD_BIOS_ADDR           0xf0000
 #define BUILD_BIOS_SIZE           0x10000
 #define BUILD_EXTRA_STACK_SIZE    0x800
-// 32KB for shadow ram copying (works around emulator deficiencies)
-#define BUILD_BIOS_TMP_ADDR       0x30000
 #define BUILD_SMM_INIT_ADDR       0x30000
 #define BUILD_SMM_ADDR            0xa0000
 
@@ -104,5 +104,6 @@
 #define DEBUG_unimplemented 2
 #define DEBUG_invalid 3
 #define DEBUG_thread 2
+#define DEBUG_tcg 20
 
 #endif // config.h

@@ -12,6 +12,8 @@
 
 TOPCMNDIR ?= ../..
 
+include $(TOPCMNDIR)/make.rules
+
 ASFLAGS = $(FLAG) $(RELEASE) $(CPUARCHDEF) -Wa,-mregnames
 CPPFLAGS = -I../libc/include $(CPUARCHDEF) -I$(INCLBRDDIR) \
 	   -I$(INCLCMNDIR) -I$(INCLCMNDIR)/$(CPUARCH)
@@ -22,7 +24,7 @@ TARGET = ../libvirtio.a
 
 all: $(TARGET)
 
-SRCS =  virtio.c virtio-blk.c p9.c virtio-9p.c virtio-scsi.c virtio-net.c
+SRCS =  virtio.c virtio-blk.c p9.c virtio-9p.c virtio-scsi.c virtio-net.c virtio-serial.c
 
 OBJS = $(SRCS:%.c=%.o)
 

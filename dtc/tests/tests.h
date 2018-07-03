@@ -93,29 +93,13 @@ void cleanup(void);
 		exit(RC_BUG);				\
 	} while (0)
 
-static inline void *xmalloc(size_t size)
-{
-	void *p = malloc(size);
-	if (! p)
-		FAIL("malloc() failure");
-	return p;
-}
-
-static inline void *xrealloc(void *p, size_t size)
-{
-	p = realloc(p, size);
-	if (! p)
-		FAIL("realloc() failure");
-	return p;
-}
-
 void check_mem_rsv(void *fdt, int n, uint64_t addr, uint64_t size);
 
 void check_property(void *fdt, int nodeoffset, const char *name,
 		    int len, const void *val);
 #define check_property_cell(fdt, nodeoffset, name, val) \
 	({ \
-		uint32_t x = cpu_to_fdt32(val);			      \
+		fdt32_t x = cpu_to_fdt32(val);			      \
 		check_property(fdt, nodeoffset, name, sizeof(x), &x); \
 	})
 
@@ -124,7 +108,12 @@ const void *check_getprop(void *fdt, int nodeoffset, const char *name,
 			  int len, const void *val);
 #define check_getprop_cell(fdt, nodeoffset, name, val) \
 	({ \
-		uint32_t x = cpu_to_fdt32(val);			     \
+		fdt32_t x = cpu_to_fdt32(val);			     \
+		check_getprop(fdt, nodeoffset, name, sizeof(x), &x); \
+	})
+#define check_getprop_64(fdt, nodeoffset, name, val) \
+	({ \
+		fdt64_t x = cpu_to_fdt64(val);			     \
 		check_getprop(fdt, nodeoffset, name, sizeof(x), &x); \
 	})
 #define check_getprop_string(fdt, nodeoffset, name, s) \
@@ -134,5 +123,7 @@ void *load_blob(const char *filename);
 void *load_blob_arg(int argc, char *argv[]);
 void save_blob(const char *filename, void *blob);
 void *open_blob_rw(void *blob);
+
+#include "util.h"
 
 #endif /* _TESTS_H */

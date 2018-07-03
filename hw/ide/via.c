@@ -23,15 +23,16 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include <hw/hw.h>
-#include <hw/i386/pc.h>
-#include <hw/pci/pci.h>
-#include <hw/isa/isa.h>
+#include "qemu/osdep.h"
+#include "hw/hw.h"
+#include "hw/i386/pc.h"
+#include "hw/pci/pci.h"
+#include "hw/isa/isa.h"
 #include "sysemu/block-backend.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/dma.h"
 
-#include <hw/ide/pci.h>
+#include "hw/ide/pci.h"
 
 static uint64_t bmdma_read(void *opaque, hwaddr addr,
                            unsigned size)
@@ -220,7 +221,7 @@ static void via_ide_class_init(ObjectClass *klass, void *data)
     k->class_id = PCI_CLASS_STORAGE_IDE;
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     /* Disabled for Red Hat Enterprise Linux: */
-    dc->cannot_instantiate_with_device_add_yet = true;
+    dc->user_creatable = false;
 }
 
 static const TypeInfo via_ide_info = {

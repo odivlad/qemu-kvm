@@ -12,6 +12,7 @@
  */
 
 #include <common.h>
+#include <console.h>
 #include <virtex2.h>
 
 #if 0
@@ -90,7 +91,8 @@ static int virtex2_ssm_dump(xilinx_desc *desc, const void *buf, size_t bsize);
 static int virtex2_ss_load(xilinx_desc *desc, const void *buf, size_t bsize);
 static int virtex2_ss_dump(xilinx_desc *desc, const void *buf, size_t bsize);
 
-static int virtex2_load(xilinx_desc *desc, const void *buf, size_t bsize)
+static int virtex2_load(xilinx_desc *desc, const void *buf, size_t bsize,
+			bitstream_type bstype)
 {
 	int ret_val = FPGA_FAIL;
 

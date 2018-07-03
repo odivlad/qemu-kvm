@@ -18,7 +18,8 @@
 #define VFAT_MAXSEQ		9   /* Up to 9 of 13 2-byte UTF-16 entries */
 #define PREFETCH_BLOCKS		2
 
-#define MAX_CLUSTSIZE	65536
+#define MAX_CLUSTSIZE	CONFIG_FS_FAT_MAX_CLUSTSIZE
+
 #define DIRENTSPERBLOCK	(mydata->sect_size / sizeof(dir_entry))
 #define DIRENTSPERCLUST	((mydata->clust_size * mydata->sect_size) / \
 			 sizeof(dir_entry))
@@ -29,6 +30,8 @@
 #define FAT16BUFSIZE	(FATBUFSIZE/2)
 #define FAT32BUFSIZE	(FATBUFSIZE/4)
 
+/* Maximum number of entry for long file name according to spec */
+#define MAX_LFN_SLOT	20
 
 /* Filesystem identifiers */
 #define FAT12_SIGN	"FAT12   "
@@ -165,6 +168,7 @@ typedef struct {
 	int	fatsize;	/* Size of FAT in bits */
 	__u32	fatlength;	/* Length of FAT in sectors */
 	__u16	fat_sect;	/* Starting sector of the FAT */
+	__u8	fat_dirty;      /* Set if fatbuf has been modified */
 	__u32	rootdir_sect;	/* Start sector of root directory */
 	__u16	sect_size;	/* Size of sectors in bytes */
 	__u16	clust_size;	/* Size of clusters in sectors */
@@ -174,8 +178,8 @@ typedef struct {
 
 typedef int	(file_detectfs_func)(void);
 typedef int	(file_ls_func)(const char *dir);
-typedef long	(file_read_func)(const char *filename, void *buffer,
-				 unsigned long maxsize);
+typedef int	(file_read_func)(const char *filename, void *buffer,
+				 int maxsize);
 
 struct filesystem {
 	file_detectfs_func	*detect;
@@ -194,14 +198,17 @@ int file_cd(const char *path);
 int file_fat_detectfs(void);
 int file_fat_ls(const char *dir);
 int fat_exists(const char *filename);
-long file_fat_read_at(const char *filename, unsigned long pos, void *buffer,
-		      unsigned long maxsize);
-long file_fat_read(const char *filename, void *buffer, unsigned long maxsize);
+int fat_size(const char *filename, loff_t *size);
+int file_fat_read_at(const char *filename, loff_t pos, void *buffer,
+		     loff_t maxsize, loff_t *actread);
+int file_fat_read(const char *filename, void *buffer, int maxsize);
 const char *file_getfsname(int idx);
-int fat_set_blk_dev(block_dev_desc_t *rbdd, disk_partition_t *info);
-int fat_register_device(block_dev_desc_t *dev_desc, int part_no);
+int fat_set_blk_dev(struct blk_desc *rbdd, disk_partition_t *info);
+int fat_register_device(struct blk_desc *dev_desc, int part_no);
 
-int file_fat_write(const char *filename, void *buffer, unsigned long maxsize);
-int fat_read_file(const char *filename, void *buf, int offset, int len);
+int file_fat_write(const char *filename, void *buf, loff_t offset, loff_t len,
+		   loff_t *actwrite);
+int fat_read_file(const char *filename, void *buf, loff_t offset, loff_t len,
+		  loff_t *actread);
 void fat_close(void);
 #endif /* _FAT_H_ */

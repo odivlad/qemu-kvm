@@ -21,24 +21,16 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <stdbool.h>
-#include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
+#include "qemu/osdep.h"
 
-/* Needed early for CONFIG_BSD etc. */
-#include "config-host.h"
-
-#if defined(CONFIG_MADVISE) || defined(CONFIG_POSIX_MADVISE)
-#include <sys/mman.h>
+#ifndef F_OFD_SETLK
+#define F_OFD_GETLK    36
+#define F_OFD_SETLK    37
 #endif
 
+/* Needed early for CONFIG_BSD etc. */
+
 #ifdef CONFIG_SOLARIS
-#include <sys/types.h>
 #include <sys/statvfs.h>
 /* See MySQL bug #7156 (http://bugs.mysql.com/bug.php?id=7156) for
    discussion about Solaris header problems */
@@ -46,12 +38,14 @@ extern int madvise(caddr_t, size_t, int);
 #endif
 
 #include "qemu-common.h"
+#include "qemu/cutils.h"
 #include "qemu/sockets.h"
+#include "qemu/error-report.h"
 #include "monitor/monitor.h"
 
 static bool fips_enabled = false;
 
-static const char *qemu_version = QEMU_VERSION;
+static const char *hw_version = QEMU_HW_VERSION;
 
 int socket_set_cork(int fd, int v)
 {
@@ -85,6 +79,10 @@ int qemu_madvise(void *addr, size_t len, int advice)
 }
 
 #ifndef _WIN32
+
+static int fcntl_op_setlk = -1;
+static int fcntl_op_getlk = -1;
+
 /*
  * Dups an fd and sets the flags
  */
@@ -94,14 +92,7 @@ static int qemu_dup_flags(int fd, int flags)
     int serrno;
     int dup_flags;
 
-#ifdef F_DUPFD_CLOEXEC
-    ret = fcntl(fd, F_DUPFD_CLOEXEC, 0);
-#else
-    ret = dup(fd);
-    if (ret != -1) {
-        qemu_set_cloexec(ret);
-    }
-#endif
+    ret = qemu_dup(fd);
     if (ret == -1) {
         goto fail;
     }
@@ -140,9 +131,115 @@ fail:
     return -1;
 }
 
+int qemu_dup(int fd)
+{
+    int ret;
+#ifdef F_DUPFD_CLOEXEC
+    ret = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+#else
+    ret = dup(fd);
+    if (ret != -1) {
+        qemu_set_cloexec(ret);
+    }
+#endif
+    return ret;
+}
+
 static int qemu_parse_fdset(const char *param)
 {
     return qemu_parse_fd(param);
+}
+
+static void qemu_probe_lock_ops(void)
+{
+    if (fcntl_op_setlk == -1) {
+#ifdef F_OFD_SETLK
+        int fd;
+        int ret;
+        struct flock fl = {
+            .l_whence = SEEK_SET,
+            .l_start  = 0,
+            .l_len    = 0,
+            .l_type   = F_WRLCK,
+        };
+
+        fd = open("/dev/null", O_RDWR);
+        if (fd < 0) {
+            fprintf(stderr,
+                    "Failed to open /dev/null for OFD lock probing: %s\n",
+                    strerror(errno));
+            fcntl_op_setlk = F_SETLK;
+            fcntl_op_getlk = F_GETLK;
+            return;
+        }
+        ret = fcntl(fd, F_OFD_GETLK, &fl);
+        close(fd);
+        if (!ret) {
+            fcntl_op_setlk = F_OFD_SETLK;
+            fcntl_op_getlk = F_OFD_GETLK;
+        } else {
+            fcntl_op_setlk = F_SETLK;
+            fcntl_op_getlk = F_GETLK;
+        }
+#else
+        fcntl_op_setlk = F_SETLK;
+        fcntl_op_getlk = F_GETLK;
+#endif
+    }
+}
+
+bool qemu_has_ofd_lock(void)
+{
+    qemu_probe_lock_ops();
+#ifdef F_OFD_SETLK
+    return fcntl_op_setlk == F_OFD_SETLK;
+#else
+    return false;
+#endif
+}
+
+static int qemu_lock_fcntl(int fd, int64_t start, int64_t len, int fl_type)
+{
+    int ret;
+    struct flock fl = {
+        .l_whence = SEEK_SET,
+        .l_start  = start,
+        .l_len    = len,
+        .l_type   = fl_type,
+    };
+    qemu_probe_lock_ops();
+    do {
+        ret = fcntl(fd, fcntl_op_setlk, &fl);
+    } while (ret == -1 && errno == EINTR);
+    return ret == -1 ? -errno : 0;
+}
+
+int qemu_lock_fd(int fd, int64_t start, int64_t len, bool exclusive)
+{
+    return qemu_lock_fcntl(fd, start, len, exclusive ? F_WRLCK : F_RDLCK);
+}
+
+int qemu_unlock_fd(int fd, int64_t start, int64_t len)
+{
+    return qemu_lock_fcntl(fd, start, len, F_UNLCK);
+}
+
+int qemu_lock_fd_test(int fd, int64_t start, int64_t len, bool exclusive)
+{
+    int ret;
+    struct flock fl = {
+        .l_whence = SEEK_SET,
+        .l_start  = start,
+        .l_len    = len,
+        .l_type   = exclusive ? F_WRLCK : F_RDLCK,
+    };
+    qemu_probe_lock_ops();
+    ret = fcntl(fd, fcntl_op_getlk, &fl);
+    if (ret == -1) {
+        return -errno;
+    } else {
+        return fl.l_type == F_UNLCK ? 0 : -EAGAIN;
+    }
 }
 #endif
 
@@ -310,80 +407,14 @@ int qemu_accept(int s, struct sockaddr *addr, socklen_t *addrlen)
     return ret;
 }
 
-/*
- * A variant of send(2) which handles partial write.
- *
- * Return the number of bytes transferred, which is only
- * smaller than `count' if there is an error.
- *
- * This function won't work with non-blocking fd's.
- * Any of the possibilities with non-bloking fd's is bad:
- *   - return a short write (then name is wrong)
- *   - busy wait adding (errno == EAGAIN) to the loop
- */
-ssize_t qemu_send_full(int fd, const void *buf, size_t count, int flags)
+void qemu_set_hw_version(const char *version)
 {
-    ssize_t ret = 0;
-    ssize_t total = 0;
-
-    while (count) {
-        ret = send(fd, buf, count, flags);
-        if (ret < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            break;
-        }
-
-        count -= ret;
-        buf += ret;
-        total += ret;
-    }
-
-    return total;
+    hw_version = version;
 }
 
-/*
- * A variant of recv(2) which handles partial write.
- *
- * Return the number of bytes transferred, which is only
- * smaller than `count' if there is an error.
- *
- * This function won't work with non-blocking fd's.
- * Any of the possibilities with non-bloking fd's is bad:
- *   - return a short write (then name is wrong)
- *   - busy wait adding (errno == EAGAIN) to the loop
- */
-ssize_t qemu_recv_full(int fd, void *buf, size_t count, int flags)
+const char *qemu_hw_version(void)
 {
-    ssize_t ret = 0;
-    ssize_t total = 0;
-
-    while (count) {
-        ret = qemu_recv(fd, buf, count, flags);
-        if (ret <= 0) {
-            if (ret < 0 && errno == EINTR) {
-                continue;
-            }
-            break;
-        }
-
-        count -= ret;
-        buf += ret;
-        total += ret;
-    }
-
-    return total;
-}
-
-void qemu_set_version(const char *version)
-{
-    qemu_version = version;
-}
-
-const char *qemu_get_version(void)
-{
-    return qemu_version;
+    return hw_version;
 }
 
 void fips_set_state(bool requested)

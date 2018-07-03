@@ -5,6 +5,8 @@
  * SPDX-License-Identifier:	GPL-2.0+
  */
 
+#include <linux/kconfig.h>
+
 #ifndef __ASSEMBLY__
 #define	__ASSEMBLY__			/* Dirty trick to get only #defines */
 #endif
@@ -33,7 +35,7 @@
  * a seperate section.  Note that ENV_CRC is only defined when building
  * U-Boot itself.
  */
-#if (defined(CONFIG_SYS_USE_PPCENV) || defined(CONFIG_NAND_U_BOOT)) && \
+#if defined(CONFIG_SYS_USE_PPCENV) && \
 	defined(ENV_CRC) /* Environment embedded in U-Boot .ppcenv section */
 /* XXX - This only works with GNU C */
 #  define __PPCENV__	__attribute__ ((section(".ppcenv")))

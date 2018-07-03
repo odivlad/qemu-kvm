@@ -8,13 +8,17 @@
 #include <asm/arch/iomux.h>
 #include <asm/io.h>
 #include <asm/arch/clock.h>
+#include <asm/arch/sys_proto.h>
 
 int setup_sata(void)
 {
-	struct iomuxc_base_regs *const iomuxc_regs
-		= (struct iomuxc_base_regs *)IOMUXC_BASE_ADDR;
+	struct iomuxc *const iomuxc_regs = (struct iomuxc *)IOMUXC_BASE_ADDR;
+	int ret;
 
-	int ret = enable_sata_clock();
+	if (!is_mx6dq() && !is_mx6dqp())
+		return 1;
+
+	ret = enable_sata_clock();
 	if (ret)
 		return ret;
 

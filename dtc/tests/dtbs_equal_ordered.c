@@ -23,13 +23,12 @@
 #include <string.h>
 #include <stdint.h>
 
-#include <fdt.h>
 #include <libfdt.h>
 
 #include "tests.h"
 #include "testdata.h"
 
-int notequal; /* = 0 */
+static int notequal; /* = 0 */
 
 #define MISMATCH(fmt, ...)			\
 	do { \

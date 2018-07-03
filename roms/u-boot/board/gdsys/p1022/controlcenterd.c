@@ -57,6 +57,8 @@ struct ihs_fpga {
 	u32 versions;		/* 0x0004 */
 	u32 fpga_version;	/* 0x0008 */
 	u32 fpga_features;	/* 0x000c */
+	u32 reserved[4];	/* 0x0010 */
+	u32 control;		/* 0x0020 */
 };
 
 #ifndef CONFIG_TRAILBLAZER
@@ -221,11 +223,7 @@ void hw_watchdog_reset(void)
 #ifdef CONFIG_TRAILBLAZER
 int do_bootd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 {
-	int rcode = 0;
-
-	if (run_command(getenv("bootcmd"), flag) < 0)
-		rcode = 1;
-	return rcode;
+	return run_command(getenv("bootcmd"), flag);
 }
 
 int board_early_init_r(void)
@@ -330,7 +328,7 @@ int board_eth_init(bd_t *bis)
 }
 
 #ifdef CONFIG_OF_BOARD_SETUP
-void ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	phys_addr_t base;
 	phys_size_t size;
@@ -343,10 +341,12 @@ void ft_board_setup(void *blob, bd_t *bd)
 	fdt_fixup_memory(blob, (u64)base, (u64)size);
 
 #ifdef CONFIG_HAS_FSL_DR_USB
-	fdt_fixup_dr_usb(blob, bd);
+	fsl_fdt_fixup_dr_usb(blob, bd);
 #endif
 
 	FT_FSL_PCI_SETUP;
+
+	return 0;
 }
 #endif
 
@@ -386,9 +386,12 @@ static void hydra_initialize(void)
 		fpga = pci_map_bar(devno, PCI_BASE_ADDRESS_0,
 			PCI_REGION_MEM);
 
-		versions = readl(fpga->versions);
-		fpga_version = readl(fpga->fpga_version);
-		fpga_features = readl(fpga->fpga_features);
+		/* disable sideband clocks */
+		writel(1, &fpga->control);
+
+		versions = readl(&fpga->versions);
+		fpga_version = readl(&fpga->fpga_version);
+		fpga_features = readl(&fpga->fpga_features);
 
 		hardware_version = versions & 0xf;
 		feature_uart_channels = (fpga_features >> 6) & 0x1f;

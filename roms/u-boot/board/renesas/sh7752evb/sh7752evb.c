@@ -9,6 +9,7 @@
 #include <asm/processor.h>
 #include <asm/io.h>
 #include <asm/mmc.h>
+#include <spi.h>
 #include <spi_flash.h>
 
 int checkboard(void)
@@ -154,17 +155,6 @@ int board_init(void)
 
 	init_usb_phy();
 	init_gether_mdio();
-
-	return 0;
-}
-
-int dram_init(void)
-{
-	DECLARE_GLOBAL_DATA_PTR;
-
-	gd->bd->bi_memstart = CONFIG_SYS_SDRAM_BASE;
-	gd->bd->bi_memsize = CONFIG_SYS_SDRAM_SIZE;
-	printf("DRAM:  %dMB\n", CONFIG_SYS_SDRAM_SIZE / (1024 * 1024));
 
 	return 0;
 }

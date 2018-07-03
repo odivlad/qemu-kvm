@@ -11,23 +11,78 @@
 #include <samsung/misc.h>
 #include <errno.h>
 #include <version.h>
+#include <malloc.h>
+#include <memalign.h>
 #include <linux/sizes.h>
 #include <asm/arch/cpu.h>
-#include <asm/arch/gpio.h>
 #include <asm/gpio.h>
 #include <linux/input.h>
+#include <dm.h>
+/*
+ * Use #ifdef to work around conflicting headers while we wait for this to be
+ * converted to driver model.
+ */
+#ifdef CONFIG_DM_PMIC_MAX77686
+#include <power/max77686_pmic.h>
+#endif
+#ifdef CONFIG_DM_PMIC_MAX8998
+#include <power/max8998_pmic.h>
+#endif
+#ifdef CONFIG_PMIC_MAX8997
+#include <power/max8997_pmic.h>
+#endif
 #include <power/pmic.h>
 #include <mmc.h>
 
 DECLARE_GLOBAL_DATA_PTR;
+
+#ifdef CONFIG_SET_DFU_ALT_INFO
+void set_dfu_alt_info(char *interface, char *devstr)
+{
+	size_t buf_size = CONFIG_SET_DFU_ALT_BUF_LEN;
+	ALLOC_CACHE_ALIGN_BUFFER(char, buf, buf_size);
+	char *alt_info = "Settings not found!";
+	char *status = "error!\n";
+	char *alt_setting;
+	char *alt_sep;
+	int offset = 0;
+
+	puts("DFU alt info setting: ");
+
+	alt_setting = get_dfu_alt_boot(interface, devstr);
+	if (alt_setting) {
+		setenv("dfu_alt_boot", alt_setting);
+		offset = snprintf(buf, buf_size, "%s", alt_setting);
+	}
+
+	alt_setting = get_dfu_alt_system(interface, devstr);
+	if (alt_setting) {
+		if (offset)
+			alt_sep = ";";
+		else
+			alt_sep = "";
+
+		offset += snprintf(buf + offset, buf_size - offset,
+				    "%s%s", alt_sep, alt_setting);
+	}
+
+	if (offset) {
+		alt_info = buf;
+		status = "done\n";
+	}
+
+	setenv("dfu_alt_info", alt_info);
+	puts(status);
+}
+#endif
 
 #ifdef CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG
 void set_board_info(void)
 {
 	char info[64];
 
-	snprintf(info, ARRAY_SIZE(info), "%d.%d", s5p_cpu_rev & 0x0f,
-		 (s5p_cpu_rev & 0xf0) >> 0x04);
+	snprintf(info, ARRAY_SIZE(info), "%u.%u", (s5p_cpu_rev & 0xf0) >> 4,
+		 s5p_cpu_rev & 0xf);
 	setenv("soc_rev", info);
 
 	snprintf(info, ARRAY_SIZE(info), "%x", s5p_cpu_id);
@@ -38,8 +93,19 @@ void set_board_info(void)
 	setenv("board_rev", info);
 #endif
 #ifdef CONFIG_OF_LIBFDT
-	snprintf(info, ARRAY_SIZE(info),  "%s%x-%s.dtb",
-		 CONFIG_SYS_SOC, s5p_cpu_id, CONFIG_SYS_BOARD);
+	const char *bdtype = "";
+	const char *bdname = CONFIG_SYS_BOARD;
+
+#ifdef CONFIG_BOARD_TYPES
+	bdtype = get_board_type();
+	if (!bdtype)
+		bdtype = "";
+
+	sprintf(info, "%s%s", bdname, bdtype);
+	setenv("boardname", info);
+#endif
+	snprintf(info, ARRAY_SIZE(info),  "%s%x-%s%s.dtb",
+		 CONFIG_SYS_SOC, s5p_cpu_id, bdname, bdtype);
 	setenv("fdtfile", info);
 #endif
 }
@@ -48,6 +114,7 @@ void set_board_info(void)
 #ifdef CONFIG_LCD_MENU
 static int power_key_pressed(u32 reg)
 {
+#ifndef CONFIG_DM_I2C /* TODO(maintainer): Convert to driver model */
 	struct pmic *pmic;
 	u32 status;
 	u32 mask;
@@ -70,6 +137,9 @@ static int power_key_pressed(u32 reg)
 		return 0;
 
 	return !!(status & mask);
+#else
+	return 0;
+#endif
 }
 
 static int key_pressed(int key)
@@ -94,6 +164,7 @@ static int key_pressed(int key)
 	return value;
 }
 
+#ifdef CONFIG_LCD
 static int check_keys(void)
 {
 	int keys = 0;
@@ -116,12 +187,14 @@ static int check_keys(void)
  * 4 BOOT_MODE_EXIT
  */
 static char *
-mode_name[BOOT_MODE_EXIT + 1] = {
-	"DEVICE",
-	"THOR",
-	"UMS",
-	"DFU",
-	"EXIT"
+mode_name[BOOT_MODE_EXIT + 1][2] = {
+	{"DEVICE", ""},
+	{"THOR", "thor"},
+	{"UMS", "ums"},
+	{"DFU", "dfu"},
+	{"GPT", "gpt"},
+	{"ENV", "env"},
+	{"EXIT", ""},
 };
 
 static char *
@@ -130,23 +203,25 @@ mode_info[BOOT_MODE_EXIT + 1] = {
 	"downloader",
 	"mass storage",
 	"firmware update",
+	"restore",
+	"default",
 	"and run normal boot"
 };
 
-#define MODE_CMD_ARGC	4
-
 static char *
-mode_cmd[BOOT_MODE_EXIT + 1][MODE_CMD_ARGC] = {
-	{"", "", "", ""},
-	{"thor", "0", "mmc", "0"},
-	{"ums", "0", "mmc", "0"},
-	{"dfu", "0", "mmc", "0"},
-	{"", "", "", ""},
+mode_cmd[BOOT_MODE_EXIT + 1] = {
+	"",
+	"thor 0 mmc 0",
+	"ums 0 mmc 0",
+	"dfu 0 mmc 0",
+	"gpt write mmc 0 $partitions",
+	"env default -a; saveenv",
+	"",
 };
 
 static void display_board_info(void)
 {
-#ifdef CONFIG_GENERIC_MMC
+#ifdef CONFIG_MMC
 	struct mmc *mmc = find_mmc_device(0);
 #endif
 	vidinfo_t *vid = &panel_info;
@@ -164,7 +239,7 @@ static void display_board_info(void)
 	lcd_printf("\tDRAM banks: %u\n", CONFIG_NR_DRAM_BANKS);
 	lcd_printf("\tDRAM size: %u MB\n", gd->ram_size / SZ_1M);
 
-#ifdef CONFIG_GENERIC_MMC
+#ifdef CONFIG_MMC
 	if (mmc) {
 		if (!mmc->capacity)
 			mmc_init(mmc);
@@ -178,15 +253,16 @@ static void display_board_info(void)
 
 	lcd_printf("\tDisplay BPP: %u\n", 1 << vid->vl_bpix);
 }
+#endif
 
 static int mode_leave_menu(int mode)
 {
+#ifdef CONFIG_LCD
 	char *exit_option;
-	char *exit_boot = "boot";
+	char *exit_reset = "reset";
 	char *exit_back = "back";
 	cmd_tbl_t *cmd;
 	int cmd_result;
-	int cmd_repeatable;
 	int leave;
 
 	lcd_clear();
@@ -200,31 +276,29 @@ static int mode_leave_menu(int mode)
 		leave = 0;
 		break;
 	default:
-		cmd = find_cmd(mode_cmd[mode][0]);
+		cmd = find_cmd(mode_name[mode][1]);
 		if (cmd) {
-			printf("Enter: %s %s\n", mode_name[mode],
-						 mode_info[mode]);
-			lcd_printf("\n\n\t%s %s\n", mode_name[mode],
-						    mode_info[mode]);
+			printf("Enter: %s %s\n", mode_name[mode][0],
+			       mode_info[mode]);
+			lcd_printf("\n\n\t%s %s\n", mode_name[mode][0],
+				   mode_info[mode]);
 			lcd_puts("\n\tDo not turn off device before finish!\n");
 
-			cmd_result = cmd_process(0, MODE_CMD_ARGC,
-						 *(mode_cmd + mode),
-						 &cmd_repeatable, NULL);
+			cmd_result = run_command(mode_cmd[mode], 0);
 
 			if (cmd_result == CMD_RET_SUCCESS) {
 				printf("Command finished\n");
 				lcd_clear();
 				lcd_printf("\n\n\t%s finished\n",
-					   mode_name[mode]);
+					   mode_name[mode][0]);
 
-				exit_option = exit_boot;
+				exit_option = exit_reset;
 				leave = 1;
 			} else {
 				printf("Command error\n");
 				lcd_clear();
 				lcd_printf("\n\n\t%s command error\n",
-					   mode_name[mode]);
+					   mode_name[mode][0]);
 
 				exit_option = exit_back;
 				leave = 0;
@@ -247,8 +321,12 @@ static int mode_leave_menu(int mode)
 
 	lcd_clear();
 	return leave;
+#else
+	return 0;
+#endif
 }
 
+#ifdef CONFIG_LCD
 static void display_download_menu(int mode)
 {
 	char *selection[BOOT_MODE_EXIT + 1];
@@ -260,22 +338,51 @@ static void display_download_menu(int mode)
 	selection[mode] = "[=>]";
 
 	lcd_clear();
-	lcd_printf("\n\t\tDownload Mode Menu\n");
+	lcd_printf("\n\n\t\tDownload Mode Menu\n\n");
 
 	for (i = 0; i <= BOOT_MODE_EXIT; i++)
 		lcd_printf("\t%s  %s - %s\n\n", selection[i],
-						mode_name[i],
-						mode_info[i]);
+			   mode_name[i][0], mode_info[i]);
 }
+#endif
 
 static void download_menu(void)
 {
+#ifdef CONFIG_LCD
 	int mode = 0;
 	int last_mode = 0;
 	int run;
-	int key;
+	int key = 0;
+	int timeout = 15; /* sec */
+	int i;
 
 	display_download_menu(mode);
+
+	lcd_puts("\n");
+
+	/* Start count if no key is pressed */
+	while (check_keys())
+		continue;
+
+	while (timeout--) {
+		lcd_printf("\r\tNormal boot will start in: %2.d seconds.",
+			   timeout);
+
+		/* about 1000 ms in for loop */
+		for (i = 0; i < 10; i++) {
+			mdelay(100);
+			key = check_keys();
+			if (key)
+				break;
+		}
+		if (key)
+			break;
+	}
+
+	if (!key) {
+		lcd_clear();
+		return;
+	}
 
 	while (1) {
 		run = 0;
@@ -284,7 +391,7 @@ static void download_menu(void)
 			display_download_menu(mode);
 
 		last_mode = mode;
-		mdelay(100);
+		mdelay(200);
 
 		key = check_keys();
 		switch (key) {
@@ -305,52 +412,14 @@ static void download_menu(void)
 
 		if (run) {
 			if (mode_leave_menu(mode))
-				break;
+				run_command("reset", 0);
 
 			display_download_menu(mode);
 		}
 	}
 
 	lcd_clear();
-}
-
-static void display_mode_info(void)
-{
-	lcd_position_cursor(4, 4);
-	lcd_printf("%s\n", U_BOOT_VERSION);
-	lcd_puts("\nDownload Mode Menu\n");
-#ifdef CONFIG_SYS_BOARD
-	lcd_printf("Board name: %s\n", CONFIG_SYS_BOARD);
 #endif
-	lcd_printf("Press POWER KEY to display MENU options.");
-}
-
-static int boot_menu(void)
-{
-	int key = 0;
-	int timeout = 10;
-
-	display_mode_info();
-
-	while (timeout--) {
-		lcd_printf("\rNormal boot will start in: %d seconds.", timeout);
-		mdelay(1000);
-
-		key = key_pressed(KEY_POWER);
-		if (key)
-			break;
-	}
-
-	lcd_clear();
-
-	/* If PWR pressed - show download menu */
-	if (key) {
-		printf("Power pressed - go to download menu\n");
-		download_menu();
-		printf("Download mode exit.\n");
-	}
-
-	return 0;
 }
 
 void check_boot_mode(void)
@@ -365,7 +434,7 @@ void check_boot_mode(void)
 	power_key_pressed(KEY_PWR_INTERRUPT_REG);
 
 	if (key_pressed(KEY_VOLUMEUP))
-		boot_menu();
+		download_menu();
 	else if (key_pressed(KEY_VOLUMEDOWN))
 		mode_leave_menu(BOOT_MODE_THOR);
 }
@@ -373,6 +442,8 @@ void check_boot_mode(void)
 void keys_init(void)
 {
 	/* Set direction to input */
+	gpio_request(KEY_VOL_UP_GPIO, "volume-up");
+	gpio_request(KEY_VOL_DOWN_GPIO, "volume-down");
 	gpio_direction_input(KEY_VOL_UP_GPIO);
 	gpio_direction_input(KEY_VOL_DOWN_GPIO);
 }

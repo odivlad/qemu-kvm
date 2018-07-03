@@ -19,7 +19,6 @@
 
 %option noyywrap nounput noinput never-interactive
 
-%x INCLUDE
 %x BYTESTRING
 %x PROPNODENAME
 
@@ -50,9 +49,7 @@ static int saw_hyphen; /* = 0 */
 static unsigned long long last_val;
 static char *last_name; /* = NULL */
 
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-
-const struct {
+static const struct {
 	const char *pattern;
 	int obase, width;
 } guess_table[] = {
@@ -194,11 +191,15 @@ const struct {
 		}
 
 %%
-static void usage(void)
-{
-	fprintf(stderr, "convert-dtsv0 <v0 dts file>...\n");
-	exit(3);
-}
+/* Usage related data. */
+static const char usage_synopsis[] = "convert-dtsv0 [options] <v0 dts file>...";
+static const char usage_short_opts[] = "" USAGE_COMMON_SHORT_OPTS;
+static struct option const usage_long_opts[] = {
+	USAGE_COMMON_LONG_OPTS
+};
+static const char * const usage_opts_help[] = {
+	USAGE_COMMON_OPTS_HELP
+};
 
 static void convert_file(const char *fname)
 {
@@ -222,14 +223,22 @@ static void convert_file(const char *fname)
 
 	while(yylex())
 		;
+
+	free(newname);
 }
 
 int main(int argc, char *argv[])
 {
+	int opt;
 	int i;
 
+	while ((opt = util_getopt_long()) != EOF) {
+		switch (opt) {
+		case_USAGE_COMMON_FLAGS
+		}
+	}
 	if (argc < 2)
-		usage();
+		usage("missing filename");
 
 	for (i = 1; i < argc; i++) {
 		fprintf(stderr, "Converting %s from dts v0 to dts v1\n", argv[i]);
