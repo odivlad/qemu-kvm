@@ -125,6 +125,7 @@ fi
     --enable-werror \
     --disable-xen \
     --disable-xfsctl \
+    --enable-sio \
     --enable-gnutls \
     --enable-gcrypt \
     --disable-nettle \
@@ -176,7 +177,7 @@ fi
     --enable-capstone \
     --audio-drv-list= \
     --enable-git-update \
-    --block-drv-rw-whitelist=qcow2,raw,file,host_device,nbd,iscsi,${gluster_driver}${rbd_driver}${vxhs_driver}blkdebug,luks,null-co,nvme,copy-on-read,throttle \
+    --block-drv-rw-whitelist=qcow2,raw,file,host_device,sio_device,nbd,iscsi,${gluster_driver}${rbd_driver}${vxhs_driver}blkdebug,luks,null-co,nvme,copy-on-read,throttle \
     --block-drv-ro-whitelist=vmdk,vhdx,vpc,https,ssh \
     --rhel-target=${rhel_target} \
     "$@"
