@@ -59,6 +59,7 @@
 
 #Versions of various parts:
 
+%define buildid %{nil}
 %define pkgname qemu-kvm
 %define rhel_ma_suffix -ma
 %define rhel_suffix -rhel
@@ -113,7 +114,7 @@ Obsoletes: %1%{rhev_provide_suffix} < %{epoch}:%{version}-%{release}   \
 Summary: QEMU is a machine emulator and virtualizer
 Name: %{pkgname}%{?pkgsuffix}
 Version: 2.12.0
-Release: 33.1%{?dist}
+Release: 33.1%{?dist}%{buildid}
 # Epoch because we pushed a qemu-1.0 package. AIUI this can't ever be dropped
 Epoch: 10
 License: GPLv2 and GPLv2+ and CC-BY
