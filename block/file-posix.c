@@ -3310,7 +3310,7 @@ static BlockDriver bdrv_sio_device = {
     .bdrv_reopen_prepare = raw_reopen_prepare,
     .bdrv_reopen_commit = raw_reopen_commit,
     .bdrv_reopen_abort = raw_reopen_abort,
-    .bdrv_create = hdev_create,
+    .bdrv_co_create_opts = hdev_co_create_opts,
     .create_opts = &raw_create_opts,
     .bdrv_co_pwrite_zeroes = sio_co_pwrite_zeroes,
     .bdrv_co_pdiscard = sio_co_pdiscard,
@@ -3322,7 +3322,7 @@ static BlockDriver bdrv_sio_device = {
     .bdrv_io_plug = raw_aio_plug,
     .bdrv_io_unplug = raw_aio_unplug,
 
-    .bdrv_truncate = raw_truncate,
+    .bdrv_co_truncate = raw_co_truncate,
     .bdrv_getlength = raw_getlength,
     .bdrv_get_info = raw_get_info,
     .bdrv_get_allocated_file_size = raw_get_allocated_file_size,
