@@ -4273,6 +4273,7 @@
       'rbd':            'BlockdevCreateOptionsRbd',
       'replication':    'BlockdevCreateNotSupported',
       'sheepdog':       'BlockdevCreateOptionsSheepdog',
+      'sio_device':     'BlockdevCreateNotSupported',
       'ssh':            'BlockdevCreateOptionsSsh',
       'throttle':       'BlockdevCreateNotSupported',
       'vdi':            'BlockdevCreateOptionsVdi',
