@@ -3217,7 +3217,7 @@ static int sio_open(BlockDriverState *bs, QDict *options, int flags,
     Error *local_err = NULL;
     int ret;
 
-    ret = raw_open_common(bs, options, flags, 0, &local_err);
+    ret = raw_open_common(bs, options, flags, 0, true, &local_err);
     if (ret < 0) {
         error_propagate(errp, local_err);
         return ret;
